@@ -13,11 +13,12 @@ from ui.main_window import MainWindow
 
 def set_windows_app_id():
     """Sets the Windows Application User Model ID for taskbar grouping and icon."""
-    try:
-        app_id = "antigravity.gpusentry.monitor.1.0"
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
-    except Exception:
-        pass
+    if sys.platform == "win32":
+        try:
+            app_id = "antigravity.gpusentry.monitor.1.0"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+        except Exception:
+            pass
 
 
 def main():

@@ -14,13 +14,14 @@ from PyQt6.QtWidgets import (
     QMenu, QApplication
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QIcon, QAction, QColor, QPainter, QPixmap
+from PyQt6.QtGui import QIcon, QAction, QColor, QPainter, QPixmap, QFont
 
 from core.gpu_types import GpuDevice, GpuMetrics, HostMetrics
 from core.monitor_worker import MonitorWorker
 from ui.theme import Theme, GLOBAL_STYLESHEET
 from ui.widgets.gpu_card import GpuCard
 from ui.widgets.cpu_ram_card import CpuRamCard
+from ui.widgets.taskbar_widget import TaskbarWidget
 
 
 class MainWindow(QMainWindow):
@@ -31,6 +32,9 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(780, 520)
 
         # State
+        self._is_quitting = False
+        self.latest_summary: dict = {}
+        self.cards_metrics: Dict[str, GpuMetrics] = {}
         # Cards state
         self.cards: Dict[str, GpuCard] = {}
         self.cpu_ram_card = CpuRamCard()
@@ -38,6 +42,12 @@ class MainWindow(QMainWindow):
         self.is_compact = False
         self.is_paused = False
         self.always_on_top = False
+
+        # Taskbar Widget (Docked near Windows Clock)
+        self.taskbar_widget = TaskbarWidget(main_window=self)
+        self.taskbar_widget.visibility_changed.connect(self._on_widget_visibility_changed)
+        self.taskbar_widget.request_show_dashboard.connect(self._show_dashboard)
+        self.taskbar_widget.request_exit_app.connect(self._quit_app)
 
         # Apply global styles
         self.setStyleSheet(GLOBAL_STYLESHEET)
@@ -119,6 +129,14 @@ class MainWindow(QMainWindow):
         self.btn_compact.setCheckable(True)
         self.btn_compact.clicked.connect(self._toggle_compact)
         top_bar.addWidget(self.btn_compact)
+
+        # Taskbar Widget toggle
+        self.btn_taskbar = QPushButton("📊 Taskbar Widget")
+        self.btn_taskbar.setCheckable(True)
+        self.btn_taskbar.setChecked(self.taskbar_widget.isVisible())
+        self.btn_taskbar.setToolTip("Show/Hide live telemetry widget on Windows taskbar near clock")
+        self.btn_taskbar.clicked.connect(self._toggle_taskbar_widget)
+        top_bar.addWidget(self.btn_taskbar)
 
         # Pause / Resume button
         self.btn_pause = QPushButton("⏸ Pause")
@@ -237,8 +255,20 @@ class MainWindow(QMainWindow):
 
         tray_menu.addSeparator()
 
+        self.act_taskbar = QAction("Taskbar Widget", self)
+        self.act_taskbar.setCheckable(True)
+        self.act_taskbar.setChecked(self.taskbar_widget.isVisible())
+        self.act_taskbar.triggered.connect(self._toggle_taskbar_widget)
+        tray_menu.addAction(self.act_taskbar)
+
+        act_dock = QAction("Dock Widget Next to Clock", self)
+        act_dock.triggered.connect(self.taskbar_widget.dock_to_clock)
+        tray_menu.addAction(act_dock)
+
+        tray_menu.addSeparator()
+
         act_quit = QAction("Exit", self)
-        act_quit.triggered.connect(self.close)
+        act_quit.triggered.connect(self._quit_app)
         tray_menu.addAction(act_quit)
 
         self.tray.setContextMenu(tray_menu)
@@ -290,14 +320,29 @@ class MainWindow(QMainWindow):
         self.lbl_sum_gpus.setText(f"⚡ GPUs: {len(devices)} Online")
         self.lbl_footer_status.setText(f"Active Monitoring: CPU + RAM + {len(devices)} GPUs (Direct C Telemetry)")
 
+        # Notify taskbar widget
+        self.taskbar_widget.set_devices(devices)
+
     def _on_host_updated(self, host_metrics: HostMetrics):
         self.latest_host_metrics = host_metrics
         self.cpu_ram_card.update_metrics(host_metrics)
+        self.taskbar_widget.update_telemetry(host_metrics, self.cards_metrics, self.latest_summary)
 
     def _on_metrics_updated(self, metrics_by_id: Dict[str, GpuMetrics]):
+        self.cards_metrics = metrics_by_id
         for dev_id, m in metrics_by_id.items():
             if dev_id in self.cards:
                 self.cards[dev_id].update_metrics(m)
+
+        # Update taskbar widget
+        self.taskbar_widget.update_telemetry(self.latest_host_metrics, metrics_by_id, self.latest_summary)
+
+        # Dynamic tray icon with peak temperature
+        peak_t = self.latest_summary.get("peak_temp_c", 0.0)
+        if not peak_t and metrics_by_id:
+            peak_t = max((m.temp_core_c for m in metrics_by_id.values()), default=0.0)
+        if peak_t > 0:
+            self._update_dynamic_tray_icon(peak_t)
 
         # Update tray tooltip with live system and GPU temperatures
         lines = ["GPU Sentry:"]
@@ -321,7 +366,37 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _update_dynamic_tray_icon(self, temp: float):
+        pix = QPixmap(32, 32)
+        pix.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pix)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Rounded background
+        painter.setBrush(QColor(14, 17, 23, 230))
+        t_col = QColor(Theme.get_temp_color(temp))
+        painter.setPen(t_col)
+        painter.drawRoundedRect(1, 1, 30, 30, 5, 5)
+
+        font_sub = QFont("Segoe UI", 6)
+        font_sub.setBold(True)
+        painter.setFont(font_sub)
+        painter.setPen(QColor(139, 148, 158))
+        painter.drawText(3, 10, "GPU")
+
+        font_val = QFont("Segoe UI", 10)
+        font_val.setBold(True)
+        painter.setFont(font_val)
+        painter.setPen(t_col)
+        painter.drawText(3, 25, f"{int(temp)}°")
+        painter.end()
+
+        self.tray.setIcon(QIcon(pix))
+
     def _on_summary_updated(self, summary: dict):
+        self.latest_summary = summary
+        self.taskbar_widget.update_telemetry(self.latest_host_metrics, self.cards_metrics, summary)
+
         # CPU & RAM summaries
         cpu_pct = summary.get("cpu_load_pct", 0)
         cpu_temp = summary.get("cpu_temp_c", 0)
@@ -388,7 +463,34 @@ class MainWindow(QMainWindow):
             self.btn_pause.setText("⏸ Pause")
             self.lbl_live_dot.setStyleSheet(f"color: {Theme.NVIDIA_GREEN}; font-size: 14px; font-weight: bold;")
 
+    def _toggle_taskbar_widget(self):
+        if self.taskbar_widget.isVisible():
+            self.taskbar_widget.hide_widget()
+        else:
+            self.taskbar_widget.show_widget()
+            self.taskbar_widget.dock_to_clock()
+
+    def _on_widget_visibility_changed(self, visible: bool):
+        self.btn_taskbar.setChecked(visible)
+        if hasattr(self, "act_taskbar"):
+            self.act_taskbar.setChecked(visible)
+
+    def _show_dashboard(self):
+        self.showNormal()
+        self.activateWindow()
+
+    def _quit_app(self):
+        self._is_quitting = True
+        self.close()
+
     def closeEvent(self, event):
+        if not getattr(self, "_is_quitting", False) and (self.taskbar_widget.isVisible() or self.tray.isVisible()):
+            # Keep monitoring active on the Windows taskbar and system tray
+            event.ignore()
+            self.hide()
+            return
+
         self.worker.stop()
+        self.taskbar_widget.close()
         self.tray.hide()
         event.accept()

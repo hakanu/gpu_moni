@@ -66,6 +66,8 @@ class DxgiBackend:
         self._init_pdh()
 
     def _enumerate_adapters(self):
+        if not hasattr(ctypes, "windll"):
+            return
         try:
             dxgi = ctypes.windll.dxgi
             pFactory = ctypes.c_void_p()
@@ -119,6 +121,8 @@ class DxgiBackend:
         self.pdh = None
         self.hQuery = None
         self.hCounterMem = None
+        if not hasattr(ctypes, "windll"):
+            return
         try:
             self.pdh = ctypes.windll.pdh
             hQ = ctypes.c_void_p()

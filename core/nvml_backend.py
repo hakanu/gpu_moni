@@ -36,11 +36,17 @@ class NvmlBackend:
         self._init_nvml()
 
     def _init_nvml(self):
-        # Locate nvml.dll
+        # Locate nvml.dll (Windows) or libnvidia-ml.so (Linux)
         candidates = [
             "nvml.dll",
             os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "nvml.dll"),
             os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "NVIDIA Corporation", "NVSMI", "nvml.dll"),
+            # Linux shared library paths
+            "libnvidia-ml.so.1",
+            "libnvidia-ml.so",
+            "/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1",
+            "/usr/lib64/libnvidia-ml.so.1",
+            "/usr/lib/libnvidia-ml.so.1",
         ]
 
         lib = None

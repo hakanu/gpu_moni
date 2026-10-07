@@ -4,8 +4,12 @@ Collects processor load, per-core utilization, clock frequency,
 thermals, memory usage, and top processes with microsecond overhead.
 """
 
-import winreg
+import os
 import psutil
+try:
+    import winreg
+except ImportError:
+    winreg = None
 from typing import List, Optional, Tuple
 from core.gpu_types import HostMetrics, CpuMetrics, RamMetrics, GpuProcess
 
@@ -22,14 +26,28 @@ class HostBackend:
         psutil.cpu_percent(interval=None, percpu=True)
 
     def _get_cpu_name(self) -> str:
+        if winreg:
+            try:
+                key = winreg.OpenKey(
+                    winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0"
+                )
+                raw_name, _ = winreg.QueryValueEx(key, "ProcessorNameString")
+                return " ".join(raw_name.strip().split())
+            except Exception:
+                pass
+
+        # Linux / Unix: parse /proc/cpuinfo
         try:
-            key = winreg.OpenKey(
-                winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0"
-            )
-            raw_name, _ = winreg.QueryValueEx(key, "ProcessorNameString")
-            return " ".join(raw_name.strip().split())
+            if os.path.exists("/proc/cpuinfo"):
+                with open("/proc/cpuinfo", "r", encoding="utf-8") as f:
+                    for line in f:
+                        if "model name" in line:
+                            return line.split(":", 1)[1].strip()
         except Exception:
-            return "Central Processor"
+            pass
+
+        import platform
+        return platform.processor() or "Central Processor"
 
     def sample_metrics(self) -> HostMetrics:
         metrics = HostMetrics()
@@ -53,7 +71,7 @@ class HostBackend:
 
         if self.adl_backend and self.adl_backend.available:
             try:
-                # Query ADL sensors for CPU package temp and power
+                # Query ADL sensors for CPU package temp and power (Windows AMD)
                 if hasattr(self.adl_backend.adl, "ADL2_New_QueryPMLogData_Get") and self.adl_backend.context.value:
                     import ctypes
                     buf = ctypes.create_string_buffer(4096)
@@ -71,6 +89,22 @@ class HostBackend:
 
                         if int_arr[1 + 40 * 2]:
                             power_w = float(int_arr[2 + 40 * 2])
+            except Exception:
+                pass
+
+        # Fallback to Linux / generic psutil hardware sensors
+        if temp_core <= 0.0 and hasattr(psutil, "sensors_temperatures"):
+            try:
+                temps = psutil.sensors_temperatures()
+                if temps:
+                    for s_name in ["k10temp", "coretemp", "cpu_thermal", "zenpower", "acpitz", "cpu-thermal"]:
+                        if s_name in temps and temps[s_name]:
+                            for entry in temps[s_name]:
+                                if entry.current and entry.current > 0:
+                                    temp_core = float(entry.current)
+                                    break
+                            if temp_core > 0:
+                                break
             except Exception:
                 pass
 
