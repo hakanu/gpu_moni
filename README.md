@@ -4,6 +4,8 @@ A high-performance, lightweight, modern Windows desktop telemetry dashboard prov
 
 Built specifically for multi-GPU setups (e.g., dual NVIDIA GeForce RTX + AMD Radeon Graphics / APU / Intel Arc) alongside AMD Ryzen / Intel Core processors.
 
+![GPU & System Sentry Dashboard Preview](assets/screenshot.png)
+
 ---
 
 ## ✨ Key Features
