@@ -57,7 +57,9 @@ Built specifically for multi-GPU setups (e.g., dual NVIDIA GeForce RTX + AMD Rad
     - **Multi-GPU Strip**: Live side-by-side stats for all detected physical GPUs (`G0`, `G1`).
   - **Auto-Dock to Clock**: Automatically snaps to the left of the notification area / taskbar clock.
   - **Draggable & Lockable**: Drag anywhere along the taskbar or desktop, with right-click position locking.
-  - **Zero Focus Stealing**: Windows extended styles (`WS_EX_NOACTIVATE` & `WS_EX_TOOLWINDOW`) ensure it never interrupts games, typing, or Alt+Tab.
+  - **Zero Focus Stealing & Anti-Snap Hijacking**: Windows extended styles (`WS_EX_NOACTIVATE`, `WS_EX_TOOLWINDOW`, and `WindowDoesNotAcceptFocus`) guarantee the widget never steals keyboard focus or gets inadvertently snapped when pressing `Win + Left / Right`.
+  - **Always-on-Top Z-Order Guard**: Reactive Win32 event hook (`SetWinEventHook`) and proactive 250ms guard ensure the widget never drops behind Windows taskbars (`Shell_TrayWnd` / `Shell_SecondaryTrayWnd`) during Aero Snap, screen switching, or multi-monitor recalculations.
+  - **Virtual Desktop Pinning**: Automatically pinned to all Windows Virtual Desktops (`IVirtualDesktopPinnedApps`) so telemetry remains visible when switching workspaces (`Win + Ctrl + Left / Right`).
   - **Double-Click Shortcut**: Double-click to instantly bring up the full dashboard.
   - **Dynamic System Tray Icon**: Real-time colored temperature badge drawn dynamically onto the system tray icon (e.g. `71°` in green/amber/red).
 - **🖥️ Modern Desktop UX**:
@@ -148,6 +150,11 @@ python main.py
 ### 🪟 Windows Taskbar Widget
 - **Dock Next to Clock**: Right-click the taskbar widget and select **`📌 Dock Next to Clock`** to automatically re-center the widget directly adjacent to the Windows notification tray.
 - **Drag & Reposition**: Click and drag the widget anywhere on the taskbar or desktop. When dragging near the taskbar bottom, it magnetically snaps into place. Right-click and choose **`🔒 Lock Position`** to freeze it in place.
+- **Screen & Multi-Monitor Switching (`Win + Left / Right`)**:
+  - The widget stays on top of both primary (`Shell_TrayWnd`) and secondary (`Shell_SecondaryTrayWnd`) taskbars even during Aero Snap (`Win + Left / Right`), Snap Assist, or multi-monitor window movement.
+  - Thanks to `WS_EX_NOACTIVATE` and focus rejection, pressing `Win + Left / Right` always snaps your active application window and will never hijack or move the widget.
+- **Virtual Desktops (`Win + Ctrl + Left / Right`)**:
+  - Automatically registered with Windows Virtual Desktop Manager (`IVirtualDesktopPinnedApps`), keeping the widget pinned and visible across all virtual desktops.
 - **Display Modes**: Right-click the widget to switch between **Compact (2 Rows)**, **Slim (1 Row)**, **Micro Load Bars**, or **Multi-GPU Strip**.
 - **Secondary Metric**: Switch the right column between **GPU Power (Watts)**, **Dedicated VRAM (GB)**, or **VRAM Usage (%)**.
 - **Double-Click**: Double-click the widget at any time to open or focus the main GPU Sentry window.

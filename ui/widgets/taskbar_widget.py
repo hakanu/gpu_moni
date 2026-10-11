@@ -28,6 +28,7 @@ def apply_win32_tool_window_styles(hwnd: int):
     Applies Windows extended window styles:
     - WS_EX_TOOLWINDOW (0x80): Hides window from taskbar icons and Alt+Tab.
     - WS_EX_NOACTIVATE (0x08000000): Clicking does not steal focus from active applications/games.
+    - WS_EX_TOPMOST (0x08): Places window in topmost Z-band.
     """
     if sys.platform != "win32" or not hwnd:
         return
@@ -36,12 +37,93 @@ def apply_win32_tool_window_styles(hwnd: int):
         GWL_EXSTYLE = -20
         WS_EX_TOOLWINDOW = 0x00000080
         WS_EX_NOACTIVATE = 0x08000000
+        WS_EX_TOPMOST = 0x00000008
 
-        get_fn = user32.GetWindowLongPtrW if hasattr(user32, "GetWindowLongPtrW") else user32.GetWindowLongW
-        set_fn = user32.SetWindowLongPtrW if hasattr(user32, "SetWindowLongPtrW") else user32.SetWindowLongW
+        get_fn = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
+        set_fn = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
 
-        current = get_fn(hwnd, GWL_EXSTYLE)
-        set_fn(hwnd, GWL_EXSTYLE, current | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
+        get_fn.argtypes = [wintypes.HWND, ctypes.c_int]
+        get_fn.restype = ctypes.c_ssize_t
+        set_fn.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+        set_fn.restype = ctypes.c_ssize_t
+
+        current = get_fn(wintypes.HWND(hwnd), GWL_EXSTYLE)
+        set_fn(wintypes.HWND(hwnd), GWL_EXSTYLE, current | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST)
+    except Exception:
+        pass
+
+
+def pin_app_to_all_desktops(app_id: str = "antigravity.gpusentry.monitor.1.0"):
+    """
+    Pins application to all Windows Virtual Desktops so it remains visible
+    when switching screens or virtual desktops with Win + Ctrl + Left/Right.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        ole32 = ctypes.windll.ole32
+        ole32.CoInitialize(None)
+
+        class GUID(ctypes.Structure):
+            _fields_ = [
+                ("Data1", ctypes.c_ulong),
+                ("Data2", ctypes.c_ushort),
+                ("Data3", ctypes.c_ushort),
+                ("Data4", ctypes.c_ubyte * 8),
+            ]
+
+        import uuid
+
+        def to_guid(s):
+            u = uuid.UUID(s)
+            g = GUID()
+            ctypes.memmove(ctypes.byref(g), u.bytes_le, 16)
+            return g
+
+        CLSID_ImmersiveShell = to_guid("{c2f03a33-21f5-47fa-b4bb-156362a2f239}")
+        IID_IServiceProvider = to_guid("{6d5140c1-7436-11ce-8034-00aa006009fa}")
+        CLSID_VirtualDesktopPinnedApps = to_guid("{b5a399e7-1c87-46b8-88e9-fc5747b171bd}")
+        IID_IVirtualDesktopPinnedApps = to_guid("{4ce81583-1e4c-4632-a621-07a53543148f}")
+
+        pSP = ctypes.c_void_p()
+        hr = ole32.CoCreateInstance(
+            ctypes.byref(CLSID_ImmersiveShell),
+            None,
+            1 | 4,
+            ctypes.byref(IID_IServiceProvider),
+            ctypes.byref(pSP),
+        )
+        if hr == 0 and pSP.value:
+            vtable = ctypes.cast(
+                ctypes.cast(pSP, ctypes.POINTER(ctypes.c_void_p)).contents,
+                ctypes.POINTER(ctypes.c_void_p),
+            )
+            QS_proto = ctypes.WINFUNCTYPE(
+                ctypes.c_long,
+                ctypes.c_void_p,
+                ctypes.POINTER(GUID),
+                ctypes.POINTER(GUID),
+                ctypes.POINTER(ctypes.c_void_p),
+            )
+            QueryService = QS_proto(vtable[3])
+
+            pPinnedApps = ctypes.c_void_p()
+            hr2 = QueryService(
+                pSP,
+                ctypes.byref(CLSID_VirtualDesktopPinnedApps),
+                ctypes.byref(IID_IVirtualDesktopPinnedApps),
+                ctypes.byref(pPinnedApps),
+            )
+            if hr2 == 0 and pPinnedApps.value:
+                vt = ctypes.cast(
+                    ctypes.cast(pPinnedApps, ctypes.POINTER(ctypes.c_void_p)).contents,
+                    ctypes.POINTER(ctypes.c_void_p),
+                )
+                PinAppID_proto = ctypes.WINFUNCTYPE(
+                    ctypes.c_long, ctypes.c_void_p, wintypes.LPCWSTR
+                )
+                PinAppID = PinAppID_proto(vt[4])
+                PinAppID(pPinnedApps, app_id)
     except Exception:
         pass
 
@@ -84,7 +166,12 @@ class TaskbarWidget(QWidget):
         # Drag & interaction state
         self._dragging = False
         self._drag_start_pos = QPoint()
+        self._expected_pos = QPoint()
         self._hovered = False
+
+        # Windows hook and guards
+        self._hook = None
+        self._win_event_proc = None
 
         self._init_window()
         self._update_dimensions()
@@ -94,16 +181,31 @@ class TaskbarWidget(QWidget):
         saved_y = self.settings.value("taskbar_y", None)
         if saved_x is not None and saved_y is not None:
             self.move(int(saved_x), int(saved_y))
+            self._expected_pos = QPoint(int(saved_x), int(saved_y))
         else:
             QTimer.singleShot(200, self.dock_to_clock)
 
+        # Pin across virtual desktops
+        pin_app_to_all_desktops("antigravity.gpusentry.monitor.1.0")
+
+        # Setup reactive Windows event hook
+        if sys.platform == "win32":
+            self._setup_winevent_hook()
+
+        # Continuous Z-order guard timer (checks every 250ms to guarantee widget stays above taskbar)
+        self._z_guard_timer = QTimer(self)
+        self._z_guard_timer.setInterval(250)
+        self._z_guard_timer.timeout.connect(self.ensure_topmost)
+        self._z_guard_timer.start()
+
     def _init_window(self):
-        # Window flags: Tool window, frameless, stay on top
-        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+        # Window flags: Tool window, frameless, stay on top, never take focus
+        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowDoesNotAcceptFocus
         if self.always_on_top:
             flags |= Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(flags)
 
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setMouseTracking(True)
@@ -115,6 +217,114 @@ class TaskbarWidget(QWidget):
             apply_win32_tool_window_styles(int(self.winId()))
         except Exception:
             pass
+
+    def ensure_topmost(self):
+        """
+        Re-asserts topmost Z-order above Windows Taskbar (Shell_TrayWnd / Shell_SecondaryTrayWnd)
+        and preserves position if displaced during screen or desktop switching.
+        """
+        if not self.isVisible() or not self.always_on_top or sys.platform != "win32":
+            return
+        try:
+            hwnd = int(self.winId())
+            if not hwnd:
+                return
+            user32 = ctypes.windll.user32
+            HWND_TOPMOST = wintypes.HWND(-1)
+            # SWP_NOMOVE (0x0002) | SWP_NOSIZE (0x0001) | SWP_NOACTIVATE (0x0010) | SWP_NOOWNERZORDER (0x0200)
+            flags = 0x0002 | 0x0001 | 0x0010 | 0x0200
+            user32.SetWindowPos.argtypes = [
+                wintypes.HWND, wintypes.HWND,
+                ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                wintypes.UINT
+            ]
+            user32.SetWindowPos.restype = wintypes.BOOL
+            user32.SetWindowPos(wintypes.HWND(hwnd), HWND_TOPMOST, 0, 0, 0, 0, flags)
+
+            # If locked and not dragging, verify we haven't been shifted by OS snapping or resolution change
+            if self.is_locked and not self._dragging and not self._expected_pos.isNull():
+                if self.pos() != self._expected_pos:
+                    self.move(self._expected_pos)
+        except Exception:
+            pass
+
+    def _setup_winevent_hook(self):
+        """
+        Installs an out-of-context WinEvent hook to reactively elevate the widget
+        whenever window focus changes, a window move/size finishes (e.g. Aero Snap),
+        or the active desktop switches.
+        """
+        if sys.platform != "win32":
+            return
+        try:
+            user32 = ctypes.windll.user32
+            WINEVENTPROC = ctypes.WINFUNCTYPE(
+                None,
+                wintypes.HANDLE,
+                wintypes.DWORD,
+                wintypes.HWND,
+                wintypes.LONG,
+                wintypes.LONG,
+                wintypes.DWORD,
+                wintypes.DWORD,
+            )
+
+            def _event_proc(hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
+                try:
+                    # EVENT_SYSTEM_FOREGROUND = 0x0003
+                    # EVENT_SYSTEM_MOVESIZEEND = 0x000B
+                    # EVENT_SYSTEM_SWITCHEND = 0x0015
+                    # EVENT_SYSTEM_DESKTOPSWITCH = 0x0020
+                    if event in (0x0003, 0x000B, 0x0015, 0x0020):
+                        self.ensure_topmost()
+                except Exception:
+                    pass
+
+            self._win_event_proc = WINEVENTPROC(_event_proc)
+            user32.SetWinEventHook.argtypes = [
+                wintypes.DWORD,
+                wintypes.DWORD,
+                wintypes.HMODULE,
+                WINEVENTPROC,
+                wintypes.DWORD,
+                wintypes.DWORD,
+                wintypes.DWORD,
+            ]
+            user32.SetWinEventHook.restype = wintypes.HANDLE
+
+            # WINEVENT_OUTOFCONTEXT = 0x0000, WINEVENT_SKIPOWNPROCESS = 0x0002
+            self._hook = user32.SetWinEventHook(
+                0x0003,  # EVENT_SYSTEM_FOREGROUND
+                0x0020,  # EVENT_SYSTEM_DESKTOPSWITCH
+                None,
+                self._win_event_proc,
+                0,
+                0,
+                0x0002,
+            )
+        except Exception:
+            self._hook = None
+
+    def _cleanup_winevent_hook(self):
+        if sys.platform == "win32" and self._hook:
+            try:
+                ctypes.windll.user32.UnhookWinEvent.argtypes = [wintypes.HANDLE]
+                ctypes.windll.user32.UnhookWinEvent.restype = wintypes.BOOL
+                ctypes.windll.user32.UnhookWinEvent(self._hook)
+            except Exception:
+                pass
+            self._hook = None
+            self._win_event_proc = None
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.ensure_topmost()
+
+    def closeEvent(self, event):
+        self._cleanup_winevent_hook()
+        if hasattr(self, "_z_guard_timer") and self._z_guard_timer.isActive():
+            self._z_guard_timer.stop()
+        super().closeEvent(event)
 
     def _update_dimensions(self):
         """Sets dimensions based on the active layout mode."""
@@ -254,9 +464,12 @@ class TaskbarWidget(QWidget):
                 dock_x = max(sg.left() + 10, min(dock_x, sg.right() - self.width() - 10))
                 dock_y = max(sg.top() + 5, min(dock_y, sg.bottom() - self.height() - 2))
 
-            self.move(int(dock_x), int(dock_y))
+            pos = QPoint(int(dock_x), int(dock_y))
+            self.move(pos)
+            self._expected_pos = pos
             self.settings.setValue("taskbar_x", int(dock_x))
             self.settings.setValue("taskbar_y", int(dock_y))
+            self.ensure_topmost()
 
     # Mouse & Drag Events
     def mousePressEvent(self, event):
@@ -281,6 +494,7 @@ class TaskbarWidget(QWidget):
                     new_pos.setY(ideal_y)
 
             self.move(new_pos)
+            self._expected_pos = new_pos
             self.settings.setValue("taskbar_x", new_pos.x())
             self.settings.setValue("taskbar_y", new_pos.y())
             event.accept()
@@ -293,10 +507,12 @@ class TaskbarWidget(QWidget):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging = False
+            self._expected_pos = self.pos()
             if not self.is_locked:
                 self.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
             else:
                 self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+            self.ensure_topmost()
             event.accept()
 
     def mouseDoubleClickEvent(self, event):
@@ -460,6 +676,7 @@ class TaskbarWidget(QWidget):
         self.is_locked = not self.is_locked
         self.settings.setValue("taskbar_locked", self.is_locked)
         if self.is_locked:
+            self._expected_pos = self.pos()
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
         else:
             self.setCursor(QCursor(Qt.CursorShape.SizeAllCursor))
@@ -493,6 +710,9 @@ class TaskbarWidget(QWidget):
         else:
             self.setWindowFlags(flags & ~Qt.WindowType.WindowStaysOnTopHint)
         self.show()
+        if sys.platform == "win32":
+            apply_win32_tool_window_styles(int(self.winId()))
+            self.ensure_topmost()
 
     def hide_widget(self):
         self.hide()
@@ -503,6 +723,9 @@ class TaskbarWidget(QWidget):
         self.show()
         self.settings.setValue("taskbar_visible", True)
         self.visibility_changed.emit(True)
+        if sys.platform == "win32":
+            apply_win32_tool_window_styles(int(self.winId()))
+            self.ensure_topmost()
 
     # Painting
     def paintEvent(self, event):
