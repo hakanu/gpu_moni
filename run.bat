@@ -2,9 +2,11 @@
 title GPU Sentry Launcher
 cd /d "%~dp0"
 
-if exist ".venv\Scripts\python.exe" (
-    start "" ".venv\Scripts\python.exe" main.py
+if exist ".venv\Scripts\pythonw.exe" (
+    start "" ".venv\Scripts\pythonw.exe" main.py %*
+) else if exist ".venv\Scripts\python.exe" (
+    start "" ".venv\Scripts\python.exe" main.py %*
 ) else (
-    start "" python main.py
+    start "" pythonw main.py %*
 )
 exit

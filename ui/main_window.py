@@ -22,6 +22,13 @@ from ui.theme import Theme, GLOBAL_STYLESHEET
 from ui.widgets.gpu_card import GpuCard
 from ui.widgets.cpu_ram_card import CpuRamCard
 from ui.widgets.taskbar_widget import TaskbarWidget
+from core.shortcut import (
+    is_start_menu_shortcut_installed,
+    install_start_menu_shortcut,
+    remove_start_menu_shortcut,
+    is_autostart_enabled,
+    set_autostart,
+)
 
 
 class MainWindow(QMainWindow):
@@ -267,6 +274,20 @@ class MainWindow(QMainWindow):
 
         tray_menu.addSeparator()
 
+        self.act_start_menu = QAction("📌 Add to Start Menu", self)
+        self.act_start_menu.setCheckable(True)
+        self.act_start_menu.setChecked(is_start_menu_shortcut_installed())
+        self.act_start_menu.triggered.connect(self._toggle_start_menu_shortcut)
+        tray_menu.addAction(self.act_start_menu)
+
+        self.act_autostart = QAction("🚀 Start on Windows Boot", self)
+        self.act_autostart.setCheckable(True)
+        self.act_autostart.setChecked(is_autostart_enabled())
+        self.act_autostart.triggered.connect(self._toggle_autostart)
+        tray_menu.addAction(self.act_autostart)
+
+        tray_menu.addSeparator()
+
         act_quit = QAction("Exit", self)
         act_quit.triggered.connect(self._quit_app)
         tray_menu.addAction(act_quit)
@@ -275,7 +296,23 @@ class MainWindow(QMainWindow):
         self.tray.activated.connect(self._on_tray_activated)
         self.tray.show()
 
+    def _toggle_start_menu_shortcut(self, checked: bool):
+        if checked:
+            ok, msg = install_start_menu_shortcut()
+            self.tray.showMessage("GPU Sentry", msg, QSystemTrayIcon.MessageIcon.Information, 2500)
+        else:
+            remove_start_menu_shortcut()
+            self.tray.showMessage("GPU Sentry", "Start Menu shortcut removed.", QSystemTrayIcon.MessageIcon.Information, 2500)
+
+    def _toggle_autostart(self, checked: bool):
+        ok, msg = set_autostart(checked)
+        self.tray.showMessage("GPU Sentry", msg, QSystemTrayIcon.MessageIcon.Information, 2500)
+
     def _create_app_icon(self) -> QIcon:
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        ico_path = os.path.join(root_dir, "assets", "gpu_sentry.ico")
+        if os.path.isfile(ico_path):
+            return QIcon(ico_path)
         pix = QPixmap(32, 32)
         pix.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pix)

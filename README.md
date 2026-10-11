@@ -75,15 +75,37 @@ Built specifically for multi-GPU setups (e.g., dual NVIDIA GeForce RTX + AMD Rad
 
 ### 🪟 Windows Setup
 
-#### 1. Instant Launch
-Double-click `run.bat` in the project root:
+#### 1. Direct Install with `uv` (Recommended)
+You can install GPU Sentry as a standalone native Windows tool using [uv](https://docs.astral.sh/uv/):
+```powershell
+# Install directly from the local directory
+uv tool install .
+
+# Or install directly from GitHub without cloning
+uv tool install git+https://github.com/hakan/gpu_moni.git
+
+# Launch from anywhere in Windows (Command Prompt, PowerShell, or Run dialog)
+gpu-sentry
+```
+
+> [!TIP]
+> **Windows Start Menu**: On first launch, GPU Sentry automatically creates a Windows Start Menu shortcut (`GPU Sentry`) with its custom icon. You can also run `install_shortcut.bat` or `gpu-sentry --install-shortcut` to create Start Menu and Desktop shortcuts anytime.
+
+#### 2. Instant Launch (`run.bat`)
+Double-click `run.bat` in the project root to run without installing:
 ```bat
 run.bat
 ```
 
-#### 2. Manual Python Launch
+#### 3. Start Menu & Desktop Shortcut Creation
+Double-click `install_shortcut.bat` or run:
 ```powershell
-.\.venv\Scripts\python.exe main.py
+.\.venv\Scripts\python.exe main.py --install-shortcut --desktop
+```
+
+#### 4. Run directly with `uv run`
+```powershell
+uv run gpu-sentry
 ```
 
 ---
@@ -177,13 +199,18 @@ python main.py
 
 ```
 gpu_moni/
+├── assets/
+│   ├── gpu_sentry.ico        # High-res Windows application & shortcut icon
+│   ├── gpu_sentry.png        # High-res Linux desktop entry icon
+│   └── screenshot.png        # Dashboard preview
 ├── core/
 │   ├── gpu_types.py          # Data classes (HostMetrics, CpuMetrics, RamMetrics, GpuDevice, GpuMetrics)
 │   ├── host_backend.py       # Cross-platform CPU & RAM telemetry (hwmon, psutil, ADL)
 │   ├── nvml_backend.py       # Direct C ctypes wrapper for NVIDIA nvml.dll / libnvidia-ml.so
 │   ├── adl_backend.py        # Direct C ctypes wrapper for AMD atiadlxx.dll / ADL2 PMLog
 │   ├── dxgi_backend.py       # DXGI adapter enumerator & PDH memory counters (Windows)
-│   └── monitor_worker.py     # Asynchronous QThread background telemetry engine (Windows & Linux)
+│   ├── monitor_worker.py     # Asynchronous QThread background telemetry engine (Windows & Linux)
+│   └── shortcut.py           # Native COM Start Menu shortcut & login autostart manager
 ├── ui/
 │   ├── theme.py              # Dark cyberpunk / Fluent modern QSS & palette
 │   ├── widgets/
@@ -194,8 +221,10 @@ gpu_moni/
 │   │   ├── sparkline.py      # 60-second real-time dual-metric rolling sparkline chart
 │   │   └── thermal_bar.py    # Gradient thermal bar & status badge
 │   └── main_window.py        # Main window with summary ribbon, controls, system tray
-├── main.py                   # Desktop application entry point (cross-platform)
-├── run.bat                   # Instant Windows launcher
+├── pyproject.toml            # Modern PEP 621 packaging for uv tool install & pip
+├── main.py                   # Desktop application entry point (cross-platform CLI & GUI)
+├── run.bat                   # Instant Windows launcher (silent pythonw)
+├── install_shortcut.bat      # 1-click Start Menu & Desktop shortcut installer
 ├── run.sh                    # Instant Linux launcher
 └── requirements.txt          # Minimal dependencies (PyQt6, psutil)
 ```

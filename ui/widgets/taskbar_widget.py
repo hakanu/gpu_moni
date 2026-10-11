@@ -659,6 +659,15 @@ class TaskbarWidget(QWidget):
 
         menu.addSeparator()
 
+        # Start on Windows Boot toggle
+        act_auto = menu.addAction("🚀 Start on Windows Boot")
+        act_auto.setCheckable(True)
+        from core.shortcut import is_autostart_enabled, set_autostart
+        act_auto.setChecked(is_autostart_enabled())
+        act_auto.triggered.connect(lambda checked: set_autostart(checked))
+
+        menu.addSeparator()
+
         # Exit application
         act_exit = menu.addAction("🚪 Exit GPU Sentry")
         act_exit.triggered.connect(self._exit_app)
