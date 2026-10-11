@@ -32,8 +32,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/hakan/gpu_moni"
-Repository = "https://github.com/hakan/gpu_moni"
+Homepage = "https://github.com/hakanu/gpu_moni"
+Repository = "https://github.com/hakanu/gpu_moni"
+Issues = "https://github.com/hakanu/gpu_moni/issues"
 
 [project.gui-scripts]
 gpu-sentry = "main:main"

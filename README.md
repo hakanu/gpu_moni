@@ -1,10 +1,33 @@
 # GPU & System Sentry ⚡
 
+[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-brightgreen.svg)]()
+[![Installed with uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![CI](https://github.com/hakanu/gpu_moni/actions/workflows/ci.yml/badge.svg)](https://github.com/hakanu/gpu_moni/actions/workflows/ci.yml)
+
 A high-performance, lightweight, modern cross-platform (**Windows & Linux**) desktop telemetry dashboard providing near real-time telemetry for **CPU, System RAM, and all GPUs** simultaneously in one unified interface.
 
 Built specifically for multi-GPU setups (e.g., dual NVIDIA GeForce RTX + AMD Radeon Graphics / APU / Intel Arc) alongside AMD Ryzen / Intel Core processors.
 
 ![GPU & System Sentry Dashboard Preview](assets/screenshot.png)
+
+---
+
+## 📑 Table of Contents
+
+- [✨ Key Features](#-key-features)
+- [🚀 Quick Start](#-quick-start)
+  - [🪟 Windows Setup](#-windows-setup)
+  - [🐧 Linux Setup](#-linux-setup)
+- [⌨️ Command Line Usage](#️-command-line-usage)
+- [💡 Tips & Desktop Integration](#-tips--desktop-integration)
+  - [Windows Taskbar Widget](#-windows-taskbar-widget)
+  - [Windows Start Menu & Autostart](#-windows-start-menu--autostart)
+  - [Linux Wayland & System Tray](#-linux-wayland--system-tray)
+- [🏗️ Architecture](#-architecture)
+- [🛠️ Development & Packaging](#️-development--packaging)
+- [📄 License](#-license)
 
 ---
 
@@ -76,20 +99,20 @@ Built specifically for multi-GPU setups (e.g., dual NVIDIA GeForce RTX + AMD Rad
 ### 🪟 Windows Setup
 
 #### 1. Direct Install with `uv` (Recommended)
-You can install GPU Sentry as a standalone native Windows tool using [uv](https://docs.astral.sh/uv/):
+You can install GPU Sentry as a standalone native Windows desktop tool using [uv](https://docs.astral.sh/uv/):
 ```powershell
-# Install directly from the local directory
+# Install directly from GitHub without cloning
+uv tool install git+https://github.com/hakanu/gpu_moni.git
+
+# Or install from your local cloned directory
 uv tool install .
 
-# Or install directly from GitHub without cloning
-uv tool install git+https://github.com/hakan/gpu_moni.git
-
-# Launch from anywhere in Windows (Command Prompt, PowerShell, or Run dialog)
+# Launch from anywhere (Command Prompt, PowerShell, or Run dialog)
 gpu-sentry
 ```
 
 > [!TIP]
-> **Windows Start Menu**: On first launch, GPU Sentry automatically creates a Windows Start Menu shortcut (`GPU Sentry`) with its custom icon. You can also run `install_shortcut.bat` or `gpu-sentry --install-shortcut` to create Start Menu and Desktop shortcuts anytime.
+> **Windows Start Menu**: On first launch, GPU Sentry automatically creates a Windows Start Menu shortcut (`GPU Sentry`) with its custom icon. You can also run `install_shortcut.bat` or `gpu-sentry --install-shortcut` to generate Start Menu and Desktop shortcuts anytime.
 
 #### 2. Instant Launch (`run.bat`)
 Double-click `run.bat` in the project root to run without installing:
@@ -143,7 +166,17 @@ Make sure Python 3.10+ and standard Qt6 runtime libraries are installed:
 > - **NVIDIA GPUs**: Proprietary NVIDIA graphics drivers provide `libnvidia-ml.so.1` automatically. Ensure drivers are installed (e.g., `sudo apt install nvidia-driver-550` or distro equivalent).
 > - **AMD & Intel GPUs**: Kernel DRM/hwmon sysfs interfaces (`amdgpu` / `i915` / `xe`) are utilized natively without needing extra SDKs.
 
-#### 2. Instant Launch with `run.sh`
+#### 2. Install with `uv` (Recommended)
+
+```bash
+# Install tool directly via uv
+uv tool install git+https://github.com/hakanu/gpu_moni.git
+
+# Launch
+gpu-sentry
+```
+
+#### 3. Instant Launch with `run.sh`
 
 A convenient shell script is included that sets up the virtual environment, installs dependencies, and launches the app:
 ```bash
@@ -151,7 +184,7 @@ chmod +x run.sh
 ./run.sh
 ```
 
-#### 3. Manual Python Launch
+#### 4. Manual Python Launch
 
 ```bash
 # Create and activate virtual environment
@@ -164,6 +197,22 @@ pip install -r requirements.txt
 # Run dashboard
 python main.py
 ```
+
+---
+
+## ⌨️ Command Line Usage
+
+GPU Sentry provides convenient command-line arguments for desktop integration and scripting:
+
+| Command | Description |
+|---|---|
+| `gpu-sentry` | Launches the full dashboard and taskbar widget |
+| `gpu-sentry --minimized` | Starts silently in background (Taskbar widget & system tray only) |
+| `gpu-sentry --install-shortcut` | Creates Windows Start Menu shortcut (`GPU Sentry`) or Linux `.desktop` entry |
+| `gpu-sentry --install-shortcut --desktop` | Creates both Start Menu / App Launcher and Desktop shortcuts |
+| `gpu-sentry --remove-shortcut` | Removes desktop & Start Menu shortcuts |
+| `gpu-sentry --autostart` | Enables launching automatically on Windows/Linux system login |
+| `gpu-sentry --no-autostart` | Disables system login autostart |
 
 ---
 
@@ -180,6 +229,10 @@ python main.py
 - **Display Modes**: Right-click the widget to switch between **Compact (2 Rows)**, **Slim (1 Row)**, **Micro Load Bars**, or **Multi-GPU Strip**.
 - **Secondary Metric**: Switch the right column between **GPU Power (Watts)**, **Dedicated VRAM (GB)**, or **VRAM Usage (%)**.
 - **Double-Click**: Double-click the widget at any time to open or focus the main GPU Sentry window.
+
+### 🪟 Windows Start Menu & Autostart
+- **Start Menu**: GPU Sentry integrates with Windows via native `IShellLinkW` COM. It appears in the Windows Start Menu and Windows Search as a first-class desktop app with its own icon.
+- **Start on Windows Boot**: Right-click the tray icon or taskbar widget and toggle **`🚀 Start on Windows Boot`** to have GPU Sentry start silently in the background on user login.
 
 ### 🐧 Linux Wayland & System Tray
 - **GNOME Shell System Tray**: On GNOME, install the [AppIndicator and KStatusNotifierItem Support](https://extensions.gnome.org/extension/615/appindicator-support/) GNOME extension so system tray icons appear in the top bar.
@@ -221,6 +274,9 @@ gpu_moni/
 │   │   ├── sparkline.py      # 60-second real-time dual-metric rolling sparkline chart
 │   │   └── thermal_bar.py    # Gradient thermal bar & status badge
 │   └── main_window.py        # Main window with summary ribbon, controls, system tray
+├── .github/
+│   └── workflows/
+│       └── ci.yml            # Multi-OS automated build & validation workflow
 ├── pyproject.toml            # Modern PEP 621 packaging for uv tool install & pip
 ├── main.py                   # Desktop application entry point (cross-platform CLI & GUI)
 ├── run.bat                   # Instant Windows launcher (silent pythonw)
@@ -228,3 +284,30 @@ gpu_moni/
 ├── run.sh                    # Instant Linux launcher
 └── requirements.txt          # Minimal dependencies (PyQt6, psutil)
 ```
+
+---
+
+## 🛠️ Development & Packaging
+
+Building and developing with [uv](https://docs.astral.sh/uv/):
+
+```bash
+# Clone the repository
+git clone https://github.com/hakanu/gpu_moni.git
+cd gpu_moni
+
+# Create environment and install in editable mode
+uv pip install -e .
+
+# Run application
+uv run gpu-sentry
+
+# Build source distribution and wheel
+uv build
+```
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
