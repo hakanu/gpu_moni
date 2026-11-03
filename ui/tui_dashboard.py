@@ -253,6 +253,7 @@ class BpytopTuiApp:
         self.devices: List[GpuDevice] = self._discover_local_devices()
         self.hw_specs: SystemHardwareSpecs = HardwareInfoCollector.collect_all()
         self.net_manager = NetworkTelemetryManager(os_name=self.hw_specs.os_info.os_name)
+        self.net_manager.server_enabled = False
 
         # Rolling history buffers (120 samples)
         self.cpu_history: Deque[float] = collections.deque([0.0] * 120, maxlen=120)
