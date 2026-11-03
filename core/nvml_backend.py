@@ -102,11 +102,11 @@ class NvmlBackend:
                 if self.nvml.nvmlDeviceGetBusId(handle, bus_buf, 32) == 0:
                     bus_id = bus_buf.value.decode("utf-8", errors="ignore").strip()
 
-            # PCIe Generation and Width
+            # PCIe Generation and Width (Current & Max)
             pcie_gen = None
             curr_gen = ctypes.c_uint()
-            if hasattr(self.nvml, "nvmlDeviceGetCurrPcieLinkGen"):
-                if self.nvml.nvmlDeviceGetCurrPcieLinkGen(handle, ctypes.byref(curr_gen)) == 0:
+            if hasattr(self.nvml, "nvmlDeviceGetCurrPcieLinkGeneration"):
+                if self.nvml.nvmlDeviceGetCurrPcieLinkGeneration(handle, ctypes.byref(curr_gen)) == 0:
                     pcie_gen = curr_gen.value
 
             pcie_width = None
@@ -114,6 +114,63 @@ class NvmlBackend:
             if hasattr(self.nvml, "nvmlDeviceGetCurrPcieLinkWidth"):
                 if self.nvml.nvmlDeviceGetCurrPcieLinkWidth(handle, ctypes.byref(curr_width)) == 0:
                     pcie_width = curr_width.value
+
+            pcie_max_gen = None
+            max_gen = ctypes.c_uint()
+            if hasattr(self.nvml, "nvmlDeviceGetMaxPcieLinkGeneration"):
+                if self.nvml.nvmlDeviceGetMaxPcieLinkGeneration(handle, ctypes.byref(max_gen)) == 0:
+                    pcie_max_gen = max_gen.value
+
+            pcie_max_width = None
+            max_width = ctypes.c_uint()
+            if hasattr(self.nvml, "nvmlDeviceGetMaxPcieLinkWidth"):
+                if self.nvml.nvmlDeviceGetMaxPcieLinkWidth(handle, ctypes.byref(max_width)) == 0:
+                    pcie_max_width = max_width.value
+
+            # Architecture, CUDA cores, VBIOS, UUID, Max Clocks, Power Limit
+            arch_map = {
+                2: "Kepler", 3: "Maxwell", 4: "Pascal", 5: "Volta",
+                6: "Turing", 7: "Ampere", 8: "Ada Lovelace", 9: "Hopper", 10: "Blackwell",
+            }
+            architecture = ""
+            arch_val = ctypes.c_uint()
+            if hasattr(self.nvml, "nvmlDeviceGetArchitecture"):
+                if self.nvml.nvmlDeviceGetArchitecture(handle, ctypes.byref(arch_val)) == 0:
+                    architecture = arch_map.get(arch_val.value, f"Arch {arch_val.value}")
+
+            cuda_cores = None
+            cores_val = ctypes.c_uint()
+            if hasattr(self.nvml, "nvmlDeviceGetNumGpuCores"):
+                if self.nvml.nvmlDeviceGetNumGpuCores(handle, ctypes.byref(cores_val)) == 0 and cores_val.value > 0:
+                    cuda_cores = cores_val.value
+
+            vbios_version = ""
+            vbios_buf = ctypes.create_string_buffer(64)
+            if hasattr(self.nvml, "nvmlDeviceGetVbiosVersion"):
+                if self.nvml.nvmlDeviceGetVbiosVersion(handle, vbios_buf, 64) == 0:
+                    vbios_version = vbios_buf.value.decode("utf-8", errors="ignore").strip()
+
+            uuid_str = ""
+            uuid_buf = ctypes.create_string_buffer(96)
+            if hasattr(self.nvml, "nvmlDeviceGetUUID"):
+                if self.nvml.nvmlDeviceGetUUID(handle, uuid_buf, 96) == 0:
+                    uuid_str = uuid_buf.value.decode("utf-8", errors="ignore").strip()
+
+            max_clk_gr = None
+            max_clk_mem = None
+            if hasattr(self.nvml, "nvmlDeviceGetMaxClockInfo"):
+                c_gr = ctypes.c_uint()
+                if self.nvml.nvmlDeviceGetMaxClockInfo(handle, 0, ctypes.byref(c_gr)) == 0 and c_gr.value > 0:
+                    max_clk_gr = c_gr.value
+                c_mem = ctypes.c_uint()
+                if self.nvml.nvmlDeviceGetMaxClockInfo(handle, 2, ctypes.byref(c_mem)) == 0 and c_mem.value > 0:
+                    max_clk_mem = c_mem.value
+
+            pwr_lim_default = None
+            pwr_lim_val = ctypes.c_uint()
+            if hasattr(self.nvml, "nvmlDeviceGetEnforcedPowerLimit"):
+                if self.nvml.nvmlDeviceGetEnforcedPowerLimit(handle, ctypes.byref(pwr_lim_val)) == 0 and pwr_lim_val.value > 0:
+                    pwr_lim_default = round(pwr_lim_val.value / 1000.0, 1)
 
             # VRAM total
             mem = _Memory()
@@ -129,7 +186,16 @@ class NvmlBackend:
                 bus_id=bus_id,
                 pcie_gen=pcie_gen,
                 pcie_width=pcie_width,
+                pcie_max_gen=pcie_max_gen,
+                pcie_max_width=pcie_max_width,
                 driver_version=self.driver_version,
+                vbios_version=vbios_version,
+                architecture=architecture,
+                cuda_cores=cuda_cores,
+                uuid=uuid_str,
+                max_clock_graphics_mhz=max_clk_gr,
+                max_clock_memory_mhz=max_clk_mem,
+                power_limit_default_w=pwr_lim_default,
                 vram_total_mb=total_mb,
             )
             devices.append(device)

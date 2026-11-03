@@ -34,10 +34,10 @@ class Theme:
 
     # Thermal scale colors
     TEMP_COOL = "#00e676"      # < 55°C
-    TEMP_OPTIMAL = "#29b6f6"   # 55 - 65°C
-    TEMP_WARM = "#ffb300"      # 65 - 75°C
-    TEMP_HOT = "#ff7043"       # 75 - 84°C
-    TEMP_CRITICAL = "#ff1744"  # >= 85°C
+    TEMP_OPTIMAL = "#29b6f6"   # 55 - 70°C
+    TEMP_WARM = "#ffb300"      # 71 - 80°C
+    TEMP_HOT = "#ff7043"       # 81 - 88°C
+    TEMP_CRITICAL = "#ff1744"  # > 88°C
 
     # Text
     TEXT_PRIMARY = "#f0f6fc"
@@ -53,11 +53,11 @@ class Theme:
     def get_temp_color(temp_c: float) -> str:
         if temp_c < 55:
             return Theme.TEMP_COOL
-        elif temp_c < 68:
+        elif temp_c <= 70:
             return Theme.TEMP_OPTIMAL
-        elif temp_c < 78:
+        elif temp_c <= 80:
             return Theme.TEMP_WARM
-        elif temp_c < 86:
+        elif temp_c <= 88:
             return Theme.TEMP_HOT
         else:
             return Theme.TEMP_CRITICAL
@@ -66,11 +66,11 @@ class Theme:
     def get_temp_status(temp_c: float) -> str:
         if temp_c < 55:
             return "COOL"
-        elif temp_c < 68:
+        elif temp_c <= 70:
             return "NORMAL"
-        elif temp_c < 78:
+        elif temp_c <= 80:
             return "WARM"
-        elif temp_c < 86:
+        elif temp_c <= 88:
             return "HOT"
         else:
             return "THROTTLE"

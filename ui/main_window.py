@@ -1,12 +1,12 @@
 """
 Main Dashboard Window for multi-GPU monitoring.
-Hosts global summary telemetry, controls, responsive GPU cards, and system tray.
+Hosts global summary telemetry, controls, responsive GPU cards, network GPU nodes, deep hardware specs, and system tray.
 """
 
 import os
 import psutil
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -17,10 +17,14 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon, QAction, QColor, QPainter, QPixmap, QFont
 
 from core.gpu_types import GpuDevice, GpuMetrics, HostMetrics
+from core.hardware_info import HardwareInfoCollector
+from core.network_telemetry import NetworkTelemetryManager, RemoteNodeState
 from core.monitor_worker import MonitorWorker
 from ui.theme import Theme, GLOBAL_STYLESHEET
 from ui.widgets.gpu_card import GpuCard
 from ui.widgets.cpu_ram_card import CpuRamCard
+from ui.widgets.hardware_specs_card import HardwareSpecsCard
+from ui.widgets.network_nodes_card import NetworkNodesCard
 from ui.widgets.taskbar_widget import TaskbarWidget
 from core.shortcut import (
     is_start_menu_shortcut_installed,
@@ -34,17 +38,31 @@ from core.shortcut import (
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("GPU Sentry - Multi-GPU Dashboard")
-        self.resize(1000, 820)
+        self.setWindowTitle("GPU Sentry - Multi-GPU & Network Hardware Dashboard")
+        self.resize(1100, 900)
         self.setMinimumSize(780, 520)
 
         # State
         self._is_quitting = False
         self.latest_summary: dict = {}
+        self.local_devices: List[GpuDevice] = []
+        self.remote_devices: List[GpuDevice] = []
         self.cards_metrics: Dict[str, GpuMetrics] = {}
-        # Cards state
+        self.remote_metrics: Dict[str, GpuMetrics] = {}
+
+        # Hardware Specifications & Cards state
+        self.hw_specs = HardwareInfoCollector.collect_all()
         self.cards: Dict[str, GpuCard] = {}
+        self.remote_cards: Dict[str, GpuCard] = {}
         self.cpu_ram_card = CpuRamCard()
+        self.cpu_ram_card.set_hardware_specs(self.hw_specs)
+        self.hw_specs_card = HardwareSpecsCard(specs=self.hw_specs)
+
+        # Network Telemetry Manager & Card
+        self.net_manager = NetworkTelemetryManager(os_name=self.hw_specs.os_info.os_name, parent=self)
+        self.net_manager.nodes_updated.connect(self._on_network_nodes_updated)
+        self.network_card = NetworkNodesCard(self.net_manager)
+
         self.latest_host_metrics: Optional[HostMetrics] = None
         self.is_compact = False
         self.is_paused = False
@@ -69,8 +87,9 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._setup_tray()
 
-        # Start worker
+        # Start worker and network manager
         self.worker.start()
+        self.net_manager.start()
 
     def _setup_ui(self):
         central_widget = QWidget()
@@ -83,7 +102,7 @@ class MainWindow(QMainWindow):
 
         # 1. Top Navigation Bar
         top_bar = QHBoxLayout()
-        top_bar.setSpacing(12)
+        top_bar.setSpacing(8)
 
         # App Brand & Status
         brand_layout = QVBoxLayout()
@@ -101,7 +120,7 @@ class MainWindow(QMainWindow):
         lbl_app_name.setStyleSheet("font-size: 18px; font-weight: 800; letter-spacing: 1px; color: #ffffff;")
         title_row.addWidget(lbl_app_name)
 
-        lbl_sub = QLabel("REAL-TIME HARDWARE MONITOR")
+        lbl_sub = QLabel("LOCAL & NETWORK HARDWARE TELEMETRY")
         lbl_sub.setStyleSheet(f"font-size: 10px; font-weight: 700; color: {Theme.TEXT_MUTED}; letter-spacing: 0.5px;")
 
         brand_layout.addLayout(title_row)
@@ -111,7 +130,6 @@ class MainWindow(QMainWindow):
         top_bar.addStretch()
 
         # Controls Section
-        # Refresh rate combo
         lbl_refresh = QLabel("Interval:")
         lbl_refresh.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 12px; font-weight: 600;")
         top_bar.addWidget(lbl_refresh)
@@ -124,6 +142,18 @@ class MainWindow(QMainWindow):
         self.cb_interval.setCurrentIndex(1)  # 1.0s default
         self.cb_interval.currentIndexChanged.connect(self._change_interval)
         top_bar.addWidget(self.cb_interval)
+
+        # Network GPUs Jump button
+        self.btn_net_gpus = QPushButton("🌐 Network GPUs")
+        self.btn_net_gpus.setToolTip("Jump to LAN & Remote Network GPUs and Thermal Monitor")
+        self.btn_net_gpus.clicked.connect(self._jump_to_network_gpus)
+        top_bar.addWidget(self.btn_net_gpus)
+
+        # Hardware Specs Jump button
+        self.btn_hw_specs = QPushButton("🧬 Hardware Specs")
+        self.btn_hw_specs.setToolTip("Jump to Deep Hardware Specifications (RAM MHz, Channels, Motherboard, BIOS, CPU, PCIe, NVMe)")
+        self.btn_hw_specs.clicked.connect(self._jump_to_hardware_specs)
+        top_bar.addWidget(self.btn_hw_specs)
 
         # Always On Top toggle
         self.btn_pin = QPushButton("📌 Pin on Top")
@@ -156,10 +186,10 @@ class MainWindow(QMainWindow):
         self.summary_ribbon = self._create_summary_ribbon()
         root_layout.addWidget(self.summary_ribbon)
 
-        # 3. Scrollable GPU Cards Container
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # 3. Scrollable GPU & Hardware Cards Container
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self.cards_container = QWidget()
         self.cards_layout = QVBoxLayout(self.cards_container)
@@ -167,8 +197,8 @@ class MainWindow(QMainWindow):
         self.cards_layout.setSpacing(14)
         self.cards_layout.addStretch()
 
-        scroll.setWidget(self.cards_container)
-        root_layout.addWidget(scroll, stretch=1)
+        self.scroll_area.setWidget(self.cards_container)
+        root_layout.addWidget(self.scroll_area, stretch=1)
 
         # 4. Footer Status Bar
         footer = QHBoxLayout()
@@ -335,35 +365,136 @@ class MainWindow(QMainWindow):
                 self.showNormal()
                 self.activateWindow()
 
-    def _on_devices_discovered(self, devices: List[GpuDevice]):
-        # Clear stretch and previous widgets
-        while self.cards_layout.count() > 0:
-            item = self.cards_layout.takeAt(0)
-            if item.widget() and item.widget() != self.cpu_ram_card:
-                item.widget().deleteLater()
+    def _jump_to_network_gpus(self):
+        if self.is_compact:
+            self.btn_compact.setChecked(False)
+            self._toggle_compact()
+        self.network_card.setVisible(True)
+        self.network_card.set_expanded(True)
+        QTimer.singleShot(50, lambda: self.scroll_area.ensureWidgetVisible(self.network_card, 0, 20))
 
-        self.cards.clear()
+    def _jump_to_hardware_specs(self):
+        if self.is_compact:
+            self.btn_compact.setChecked(False)
+            self._toggle_compact()
+        self.hw_specs_card.setVisible(True)
+        self.hw_specs_card.set_expanded(True)
+        QTimer.singleShot(50, lambda: self.scroll_area.ensureWidgetVisible(self.hw_specs_card, 0, 20))
+
+    def _rebuild_cards_layout(self):
+        # Detach existing widgets from layout without deleting persistent ones
+        while self.cards_layout.count() > 0:
+            self.cards_layout.takeAt(0)
 
         # 1. Host System (CPU & RAM) Card
         self.cards_layout.addWidget(self.cpu_ram_card)
 
-        # 2. Individual GPU Cards
-        for dev in devices:
-            card = GpuCard(dev)
-            self.cards[dev.device_id] = card
-            self.cards_layout.addWidget(card)
+        # 2. Local GPU Cards
+        for dev in self.local_devices:
+            if dev.device_id in self.cards:
+                self.cards_layout.addWidget(self.cards[dev.device_id])
+
+        # 3. Pinned Remote GPU Cards (if enabled)
+        if self.net_manager.pin_remote_cards:
+            for dev in self.remote_devices:
+                if dev.device_id in self.remote_cards:
+                    self.cards_layout.addWidget(self.remote_cards[dev.device_id])
+
+        # 4. Network Nodes & Remote GPU Thermal Monitor Card
+        self.cards_layout.addWidget(self.network_card)
+
+        # 5. Deep Hardware Specifications Card
+        self.cards_layout.addWidget(self.hw_specs_card)
 
         self.cards_layout.addStretch()
-        self.lbl_sum_gpus.setText(f"⚡ GPUs: {len(devices)} Online")
-        self.lbl_footer_status.setText(f"Active Monitoring: CPU + RAM + {len(devices)} GPUs (Direct C Telemetry)")
+
+    def _on_devices_discovered(self, devices: List[GpuDevice]):
+        self.local_devices = devices
+        for card in self.cards.values():
+            card.deleteLater()
+        self.cards.clear()
+
+        for dev in devices:
+            card = GpuCard(dev)
+            card.set_compact_mode(self.is_compact)
+            self.cards[dev.device_id] = card
+
+        self.hw_specs_card.set_devices(devices)
+        self._rebuild_cards_layout()
+        self._update_gpu_count_labels()
 
         # Notify taskbar widget
-        self.taskbar_widget.set_devices(devices)
+        self.taskbar_widget.set_devices(self.local_devices + self.remote_devices)
+
+    def _on_network_nodes_updated(self, states: Dict[str, RemoteNodeState]):
+        new_remote_devs: List[GpuDevice] = []
+        new_remote_metrics: Dict[str, GpuMetrics] = {}
+
+        for st in states.values():
+            if st.online:
+                for dev in st.gpus:
+                    new_remote_devs.append(dev)
+                    m = st.gpu_metrics.get(dev.device_id, dev.metrics)
+                    new_remote_metrics[dev.device_id] = m
+
+        self.remote_metrics = new_remote_metrics
+
+        # Update top navbar button badge
+        if new_remote_devs:
+            self.btn_net_gpus.setText(f"🌐 Network GPUs ({len(new_remote_devs)})")
+        else:
+            self.btn_net_gpus.setText("🌐 Network GPUs")
+
+        # Check if remote device list or pin setting changed
+        old_ids = [d.device_id for d in self.remote_devices]
+        new_ids = [d.device_id for d in new_remote_devs]
+        self.remote_devices = new_remote_devs
+
+        if old_ids != new_ids:
+            # Remove stale remote cards
+            for rid in list(self.remote_cards.keys()):
+                if rid not in new_ids:
+                    self.remote_cards[rid].deleteLater()
+                    del self.remote_cards[rid]
+            # Create new remote cards
+            for dev in new_remote_devs:
+                if dev.device_id not in self.remote_cards:
+                    rcard = GpuCard(dev)
+                    rcard.set_compact_mode(self.is_compact)
+                    self.remote_cards[dev.device_id] = rcard
+            self._rebuild_cards_layout()
+            self.taskbar_widget.set_devices(self.local_devices + self.remote_devices)
+        else:
+            # Make sure visibility matches pin_remote_cards
+            for rcard in self.remote_cards.values():
+                rcard.setVisible(self.net_manager.pin_remote_cards)
+
+        # Push live metrics to pinned remote GPU cards
+        for dev_id, m in new_remote_metrics.items():
+            if dev_id in self.remote_cards:
+                self.remote_cards[dev_id].update_metrics(m)
+
+        self._update_gpu_count_labels()
+
+    def _update_gpu_count_labels(self):
+        n_local = len(self.local_devices)
+        n_rem = len(self.remote_devices)
+        if n_rem > 0:
+            self.lbl_sum_gpus.setText(f"⚡ GPUs: {n_local} Local + {n_rem} Net")
+        else:
+            self.lbl_sum_gpus.setText(f"⚡ GPUs: {n_local} Online")
+        mb_str = f" • {self.hw_specs.motherboard.product}" if self.hw_specs.motherboard.product else ""
+        net_str = f" + {n_rem} Network GPUs" if n_rem > 0 else ""
+        self.lbl_footer_status.setText(
+            f"Active Monitoring: CPU + RAM + {n_local} Local GPUs{net_str}{mb_str} (Direct C + LAN Telemetry)"
+        )
 
     def _on_host_updated(self, host_metrics: HostMetrics):
         self.latest_host_metrics = host_metrics
         self.cpu_ram_card.update_metrics(host_metrics)
-        self.taskbar_widget.update_telemetry(host_metrics, self.cards_metrics, self.latest_summary)
+        combined_metrics = {**self.cards_metrics, **self.remote_metrics}
+        self.taskbar_widget.update_telemetry(host_metrics, combined_metrics, self.latest_summary)
+        self.net_manager.update_local_telemetry(self.local_devices, self.cards_metrics, host_metrics)
 
     def _on_metrics_updated(self, metrics_by_id: Dict[str, GpuMetrics]):
         self.cards_metrics = metrics_by_id
@@ -371,17 +502,20 @@ class MainWindow(QMainWindow):
             if dev_id in self.cards:
                 self.cards[dev_id].update_metrics(m)
 
-        # Update taskbar widget
-        self.taskbar_widget.update_telemetry(self.latest_host_metrics, metrics_by_id, self.latest_summary)
+        # Share local snapshot with network server
+        self.net_manager.update_local_telemetry(self.local_devices, metrics_by_id, self.latest_host_metrics)
 
-        # Dynamic tray icon with peak temperature
-        peak_t = self.latest_summary.get("peak_temp_c", 0.0)
-        if not peak_t and metrics_by_id:
-            peak_t = max((m.temp_core_c for m in metrics_by_id.values()), default=0.0)
+        combined_metrics = {**metrics_by_id, **self.remote_metrics}
+
+        # Update taskbar widget
+        self.taskbar_widget.update_telemetry(self.latest_host_metrics, combined_metrics, self.latest_summary)
+
+        # Dynamic tray icon with peak temperature across local + remote GPUs
+        peak_t = max((m.temp_core_c for m in combined_metrics.values()), default=0.0)
         if peak_t > 0:
             self._update_dynamic_tray_icon(peak_t)
 
-        # Update tray tooltip with live system and GPU temperatures
+        # Update tray tooltip with live system, local GPUs, and remote GPUs
         lines = ["GPU Sentry:"]
         if self.latest_host_metrics:
             cpu = self.latest_host_metrics.cpu
@@ -392,6 +526,10 @@ class MainWindow(QMainWindow):
             m = metrics_by_id.get(dev_id)
             if m:
                 lines.append(f"{card.device.name}: {int(m.temp_core_c)}°C • {int(m.gpu_util_percent)}%")
+        for dev_id, rcard in self.remote_cards.items():
+            m = self.remote_metrics.get(dev_id)
+            if m:
+                lines.append(f"🌐 {rcard.device.name}: {int(m.temp_core_c)}°C • {int(m.gpu_util_percent)}%")
         self.tray.setToolTip("\n".join(lines))
 
         # Update footer memory & time
@@ -431,8 +569,32 @@ class MainWindow(QMainWindow):
         self.tray.setIcon(QIcon(pix))
 
     def _on_summary_updated(self, summary: dict):
+        # Merge remote GPU stats into global summary if remote GPUs are online
+        total_power = float(summary.get("total_power_w", 0.0))
+        peak_t = float(summary.get("peak_temp_c", 0.0))
+        peak_gpu = str(summary.get("peak_temp_gpu", ""))
+        used_gb = float(summary.get("total_vram_used_gb", 0.0))
+        cap_gb = float(summary.get("total_vram_cap_gb", 0.0))
+
+        for dev in self.remote_devices:
+            m = self.remote_metrics.get(dev.device_id)
+            if m:
+                total_power += m.power_draw_w
+                used_gb += m.vram_used_mb / 1024.0
+                cap_gb += m.vram_total_mb / 1024.0
+                if m.temp_core_c > peak_t:
+                    peak_t = m.temp_core_c
+                    peak_gpu = dev.name
+
+        summary["total_power_w"] = round(total_power, 1)
+        summary["peak_temp_c"] = round(peak_t, 1)
+        summary["peak_temp_gpu"] = peak_gpu
+        summary["total_vram_used_gb"] = round(used_gb, 2)
+        summary["total_vram_cap_gb"] = round(cap_gb, 2)
+
         self.latest_summary = summary
-        self.taskbar_widget.update_telemetry(self.latest_host_metrics, self.cards_metrics, summary)
+        combined_metrics = {**self.cards_metrics, **self.remote_metrics}
+        self.taskbar_widget.update_telemetry(self.latest_host_metrics, combined_metrics, summary)
 
         # CPU & RAM summaries
         cpu_pct = summary.get("cpu_load_pct", 0)
@@ -442,19 +604,16 @@ class MainWindow(QMainWindow):
         ram_u = summary.get("ram_used_gb", 0)
         ram_tot = summary.get("ram_total_gb", 0)
         ram_pct = summary.get("ram_load_pct", 0)
-        self.lbl_sum_ram.setText(f"🧠 RAM: {ram_u:.1f} / {ram_tot:.1f} GB ({ram_pct:.0f}%)")
+        ram_speed_str = f" • {self.hw_specs.ram.configured_speed_mts} MT/s" if self.hw_specs.ram.configured_speed_mts else ""
+        self.lbl_sum_ram.setText(f"🧠 RAM: {ram_u:.1f} / {ram_tot:.1f} GB ({ram_pct:.0f}%{ram_speed_str})")
 
         # GPU summaries
         self.lbl_sum_power.setText(f"🔥 GPU Power: {summary.get('total_power_w', 0)} W")
 
-        peak_t = summary.get("peak_temp_c", 0)
-        peak_gpu = summary.get("peak_temp_gpu", "")
-        self.lbl_sum_temp.setText(f"🌡 Peak GPU: {peak_t}°C ({peak_gpu})")
+        self.lbl_sum_temp.setText(f"🌡 Peak GPU: {peak_t:.0f}°C ({peak_gpu})")
         color = Theme.get_temp_color(peak_t)
         self.lbl_sum_temp.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {color};")
 
-        used_gb = summary.get("total_vram_used_gb", 0)
-        cap_gb = summary.get("total_vram_cap_gb", 0)
         self.lbl_sum_vram.setText(f"💾 Total VRAM: {used_gb:.1f} / {cap_gb:.1f} GB")
 
         lat = summary.get("poll_latency_ms", 0)
@@ -481,6 +640,10 @@ class MainWindow(QMainWindow):
         self.cpu_ram_card.set_compact_mode(self.is_compact)
         for card in self.cards.values():
             card.set_compact_mode(self.is_compact)
+        for rcard in self.remote_cards.values():
+            rcard.set_compact_mode(self.is_compact)
+        self.network_card.setVisible(not self.is_compact)
+        self.hw_specs_card.setVisible(not self.is_compact)
         if self.is_compact:
             self.summary_ribbon.setVisible(False)
             self.btn_compact.setText("🗖 Expanded")
@@ -488,7 +651,7 @@ class MainWindow(QMainWindow):
         else:
             self.summary_ribbon.setVisible(True)
             self.btn_compact.setText("🗗 Compact")
-            self.resize(1000, 820)
+            self.resize(1100, 900)
 
     def _toggle_pause(self):
         self.is_paused = not self.is_paused
@@ -527,6 +690,7 @@ class MainWindow(QMainWindow):
             self.hide()
             return
 
+        self.net_manager.stop()
         self.worker.stop()
         self.taskbar_widget.close()
         self.tray.hide()

@@ -41,6 +41,7 @@ gpu-sentry = "main:main"
 
 [project.scripts]
 gpu-sentry-cli = "main:main"
+gpu-sentry-tui = "ui.tui_dashboard:run_tui"
 
 [tool.setuptools]
 py-modules = ["main"]

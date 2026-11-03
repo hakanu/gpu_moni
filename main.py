@@ -1,16 +1,12 @@
 """
 GPU Sentry - High-Performance Real-Time Multi-GPU Telemetry Dashboard.
-Lightweight native Windows desktop application.
+Lightweight native Windows & Linux desktop application + LAN Telemetry Agent.
 """
 
 import os
 import sys
+import time
 import ctypes
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
-
-from ui.main_window import MainWindow
 
 
 def set_windows_app_id():
@@ -23,7 +19,66 @@ def set_windows_app_id():
             pass
 
 
+def run_headless_agent():
+    """Runs GPU Sentry as a headless LAN telemetry agent (no GUI required)."""
+    from core.network_telemetry import LocalTelemetryServer, DEFAULT_HTTP_PORT, get_local_lan_ips
+    from core.monitor_worker import MonitorWorker
+    from core.hardware_info import HardwareInfoCollector
+
+    port = DEFAULT_HTTP_PORT
+    for idx, arg in enumerate(sys.argv):
+        if arg == "--port" and idx + 1 < len(sys.argv) and sys.argv[idx + 1].isdigit():
+            port = int(sys.argv[idx + 1])
+
+    os_specs = HardwareInfoCollector.collect_os_specs()
+    server = LocalTelemetryServer(port=port)
+    if not server.start():
+        print(f"[ERROR] Failed to start GPU Sentry Agent on port {port}.")
+        sys.exit(1)
+
+    worker = MonitorWorker(interval_ms=1000)
+    ips = get_local_lan_ips()
+    ip_str = ips[0] if ips else "0.0.0.0"
+    print(f"[GPU Sentry Agent] Broadcasting {len(worker.devices)} GPU(s) on http://{ip_str}:{server.port}/api/telemetry (UDP Discovery :51921)")
+
+    try:
+        while True:
+            metrics_by_id = {}
+            pdh_mems = worker.dxgi.sample_memory_by_luid()
+            for dev in worker.devices:
+                if dev.vendor == "NVIDIA" and worker.nvml.available:
+                    m = worker.nvml.sample_metrics(dev.index)
+                elif dev.vendor == "AMD" and worker.adl.available:
+                    m = worker.adl.sample_metrics(dev.index)
+                    if dev.luid in pdh_mems:
+                        m.vram_used_mb = pdh_mems[dev.luid]
+                    m.vram_total_mb = dev.vram_total_mb
+                else:
+                    from core.gpu_types import GpuMetrics
+                    m = GpuMetrics(vram_total_mb=dev.vram_total_mb)
+                metrics_by_id[dev.device_id] = m
+            host_m = worker.host.sample_metrics()
+            server.update_snapshot(worker.devices, metrics_by_id, host_m, os_name=os_specs.os_name)
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        print("\n[GPU Sentry Agent] Shutting down...")
+    finally:
+        server.stop()
+        worker.nvml.shutdown()
+        worker.adl.shutdown()
+        worker.dxgi.shutdown()
+
+
 def main():
+    if "--tui" in sys.argv or "-t" in sys.argv:
+        from ui.tui_dashboard import run_tui
+        run_tui()
+        return
+
+    if "--agent" in sys.argv:
+        run_headless_agent()
+        return
+
     # Command line argument handling for shortcuts and autostart
     if "--install-shortcut" in sys.argv:
         from core.shortcut import install_start_menu_shortcut
@@ -62,6 +117,11 @@ def main():
     # Set Windows process metadata
     set_windows_app_id()
 
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QIcon
+    from ui.main_window import MainWindow
+
     # Enable High DPI scaling
     if hasattr(Qt.HighDpiScaleFactorRoundingPolicy, "PassThrough"):
         QApplication.setHighDpiScaleFactorRoundingPolicy(
@@ -83,6 +143,32 @@ def main():
         window.hide()
     else:
         window.show()
+        window.showNormal()
+        window.raise_()
+        window.activateWindow()
+        if sys.platform == "win32":
+            try:
+                hwnd = int(window.winId())
+                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                ctypes.windll.user32.ShowWindow(hwnd, 1)  # SW_SHOWNORMAL (overrides parent SW_HIDE)
+                # Briefly set TOPMOST then NOTOPMOST (unless pinned) to bypass Windows foreground lock
+                SWP_NOMOVE = 0x0002
+                SWP_NOSIZE = 0x0001
+                SWP_SHOWWINDOW = 0x0040
+                ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+                if not window.always_on_top:
+                    ctypes.windll.user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+            except Exception:
+                pass
+        if window.taskbar_widget.isVisible():
+            if sys.platform == "win32":
+                try:
+                    tw_hwnd = int(window.taskbar_widget.winId())
+                    ctypes.windll.user32.ShowWindow(tw_hwnd, 4)  # SW_SHOWNOACTIVATE
+                except Exception:
+                    pass
+            window.taskbar_widget.dock_to_clock()
 
     sys.exit(app.exec())
 

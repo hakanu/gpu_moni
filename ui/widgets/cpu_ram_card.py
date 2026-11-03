@@ -4,6 +4,7 @@ Displays processor load, per-core utilization, CPU thermals & power,
 RAM usage, rolling history sparkline, and logical core heatmap.
 """
 
+from typing import Optional
 from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar,
     QWidget, QPushButton, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView
@@ -12,6 +13,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 
 from core.gpu_types import HostMetrics
+from core.hardware_info import SystemHardwareSpecs
 from ui.theme import Theme
 from ui.widgets.arc_gauge import ArcGauge
 from ui.widgets.sparkline import SparklineChart
@@ -25,8 +27,45 @@ class CpuRamCard(QFrame):
         self.is_compact = False
         self.core_bars = []
         self.core_labels = []
+        self.hw_specs: Optional[SystemHardwareSpecs] = None
 
         self._setup_ui()
+
+    def set_hardware_specs(self, specs: SystemHardwareSpecs):
+        self.hw_specs = specs
+        if specs.cpu.name:
+            self.lbl_name.setText(specs.cpu.name)
+        self._refresh_static_labels()
+
+    def _refresh_static_labels(self):
+        if not self.hw_specs:
+            return
+        c = self.hw_specs.cpu
+        r = self.hw_specs.ram
+        mb = self.hw_specs.motherboard
+
+        parts = []
+        if c.socket:
+            parts.append(f"Socket {c.socket}")
+        if c.cores_physical:
+            parts.append(f"{c.cores_physical}C/{c.cores_logical}T")
+        if c.l3_cache_kb >= 1024:
+            parts.append(f"{c.l3_cache_kb // 1024} MB L3")
+        if r.total_installed_gb > 0:
+            ram_s = f"{r.total_installed_gb:.0f} GB {r.mem_type}"
+            if "Dual" in r.channel_mode:
+                ram_s += " Dual-Ch"
+            elif "Quad" in r.channel_mode:
+                ram_s += " Quad-Ch"
+            if r.configured_speed_mts:
+                ram_s += f" @ {r.configured_speed_mts} MT/s ({r.dram_freq_mhz} MHz)"
+            parts.append(ram_s)
+        if parts:
+            self.lbl_specs.setText(" • ".join(parts))
+
+        if mb.product:
+            bios_s = f" (BIOS {mb.bios_version})" if mb.bios_version else ""
+            self.lbl_mobo_info.setText(f"Motherboard: {mb.product}{bios_s}")
 
     def _setup_ui(self):
         self.setObjectName("CpuRamCard")
@@ -72,7 +111,7 @@ class CpuRamCard(QFrame):
 
         # Cores & RAM specs pill
         self.lbl_specs = QLabel("Detecting hardware...")
-        self.lbl_specs.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 11px;")
+        self.lbl_specs.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 11px; font-weight: 600;")
         header_layout.addWidget(self.lbl_specs)
 
         main_layout.addLayout(header_layout)
@@ -181,16 +220,20 @@ class CpuRamCard(QFrame):
         ram_box.addWidget(self.lbl_ram_free)
         right_col.addLayout(ram_box)
 
-        # Pagefile / Commit Box
+        # Pagefile / Motherboard Box
         page_box = QVBoxLayout()
-        page_box.setSpacing(4)
-        lbl_page_title = QLabel("PAGEFILE / COMMIT CHARGE")
+        page_box.setSpacing(3)
+        lbl_page_title = QLabel("PAGEFILE & PLATFORM")
         lbl_page_title.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px; font-weight: bold;")
         page_box.addWidget(lbl_page_title)
 
         self.lbl_page_val = QLabel("Pagefile: -- / -- GB")
         self.lbl_page_val.setStyleSheet("color: #f0f6fc; font-size: 11px;")
         page_box.addWidget(self.lbl_page_val)
+
+        self.lbl_mobo_info = QLabel("")
+        self.lbl_mobo_info.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 10px;")
+        page_box.addWidget(self.lbl_mobo_info)
         right_col.addLayout(page_box)
 
         stats_row.addLayout(right_col, stretch=2)
@@ -318,7 +361,8 @@ class CpuRamCard(QFrame):
         # Header info
         if cpu.name:
             self.lbl_name.setText(cpu.name)
-            self.lbl_specs.setText(f"{cpu.cores_physical} Cores • {cpu.cores_logical} Threads • {ram.total_gb:.0f} GB System RAM")
+            if not self.hw_specs:
+                self.lbl_specs.setText(f"{cpu.cores_physical} Cores • {cpu.cores_logical} Threads • {ram.total_gb:.0f} GB System RAM")
 
         # 1. Gauge
         self.gauge.set_value(cpu.load_percent)
@@ -339,13 +383,21 @@ class CpuRamCard(QFrame):
             self.power_bar.setValue(0)
 
         if cpu.freq_mhz > 0:
-            self.lbl_freq.setText(f"Frequency: {int(cpu.freq_mhz)} MHz ({cpu.freq_mhz/1000.0:.2f} GHz)")
+            freq_txt = f"Live: {int(cpu.freq_mhz)} MHz ({cpu.freq_mhz/1000.0:.2f} GHz)"
+            if self.hw_specs and self.hw_specs.cpu.boost_clock_mhz > 0:
+                freq_txt += f" • Boost: {self.hw_specs.cpu.boost_clock_mhz} MHz"
+            self.lbl_freq.setText(freq_txt)
 
         # 4. RAM
         if ram.total_gb > 0:
             self.lbl_ram_val.setText(f"{ram.used_gb:.1f} / {ram.total_gb:.1f} GB ({int(ram.load_percent)}%)")
             self.ram_bar.setValue(int(min(100, ram.load_percent)))
-            self.lbl_ram_free.setText(f"Available: {ram.free_gb:.1f} GB")
+            free_txt = f"Available: {ram.free_gb:.1f} GB"
+            if self.hw_specs and self.hw_specs.ram.configured_speed_mts > 0:
+                r = self.hw_specs.ram
+                ch_short = "Dual-Ch" if "Dual" in r.channel_mode else ("Quad-Ch" if "Quad" in r.channel_mode else r.channel_mode)
+                free_txt += f" • {r.mem_type} {ch_short} @ {r.configured_speed_mts} MT/s ({r.dram_freq_mhz} MHz)"
+            self.lbl_ram_free.setText(free_txt)
 
         if ram.pagefile_total_gb > 0:
             self.lbl_page_val.setText(f"Pagefile: {ram.pagefile_used_gb:.1f} / {ram.pagefile_total_gb:.1f} GB")

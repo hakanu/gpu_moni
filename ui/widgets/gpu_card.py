@@ -69,12 +69,21 @@ class GpuCard(QFrame):
 
         header_layout.addStretch()
 
-        # Bus / PCIe Info Pill
-        bus_str = self.device.bus_id
+        # Architecture / Cores / PCIe / Bus Info Pill
+        info_parts = []
+        if self.device.architecture:
+            info_parts.append(self.device.architecture)
+        if self.device.cuda_cores:
+            info_parts.append(f"{self.device.cuda_cores} Cores")
         if self.device.pcie_gen and self.device.pcie_width:
-            bus_str += f" • Gen{self.device.pcie_gen} x{self.device.pcie_width}"
-        self.lbl_bus = QLabel(bus_str)
-        self.lbl_bus.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 11px;")
+            if self.device.pcie_max_gen and self.device.pcie_max_width:
+                info_parts.append(f"PCIe Gen{self.device.pcie_gen}x{self.device.pcie_width} (Max Gen{self.device.pcie_max_gen}x{self.device.pcie_max_width})")
+            else:
+                info_parts.append(f"PCIe Gen{self.device.pcie_gen}x{self.device.pcie_width}")
+        if self.device.bus_id:
+            info_parts.append(self.device.bus_id)
+        self.lbl_bus = QLabel(" • ".join(info_parts))
+        self.lbl_bus.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 11px; font-weight: 600;")
         header_layout.addWidget(self.lbl_bus)
 
         main_layout.addLayout(header_layout)

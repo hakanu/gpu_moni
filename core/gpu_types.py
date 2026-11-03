@@ -56,7 +56,16 @@ class GpuDevice:
     bus_id: str = ""
     pcie_gen: Optional[int] = None
     pcie_width: Optional[int] = None
+    pcie_max_gen: Optional[int] = None
+    pcie_max_width: Optional[int] = None
     driver_version: str = ""
+    vbios_version: str = ""
+    architecture: str = ""
+    cuda_cores: Optional[int] = None
+    uuid: str = ""
+    max_clock_graphics_mhz: Optional[int] = None
+    max_clock_memory_mhz: Optional[int] = None
+    power_limit_default_w: Optional[float] = None
     vram_total_mb: float = 0.0
     luid: str = ""
     metrics: GpuMetrics = field(default_factory=GpuMetrics)
@@ -90,4 +99,3 @@ class HostMetrics:
     cpu: CpuMetrics = field(default_factory=CpuMetrics)
     ram: RamMetrics = field(default_factory=RamMetrics)
     top_processes: List[GpuProcess] = field(default_factory=list)
-

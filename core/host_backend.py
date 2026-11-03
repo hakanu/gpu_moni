@@ -1,7 +1,7 @@
 """
 Host System (CPU and RAM) telemetry backend.
 Collects processor load, per-core utilization, clock frequency,
-thermals, memory usage, and top processes with microsecond overhead.
+thermals, and memory usage with microsecond overhead.
 """
 
 import os
@@ -10,7 +10,7 @@ try:
     import winreg
 except ImportError:
     winreg = None
-from typing import List, Optional, Tuple
+from typing import List, Optional
 from core.gpu_types import HostMetrics, CpuMetrics, RamMetrics, GpuProcess
 
 
@@ -49,7 +49,7 @@ class HostBackend:
         import platform
         return platform.processor() or "Central Processor"
 
-    def sample_metrics(self) -> HostMetrics:
+    def sample_metrics(self, include_top_processes: bool = False) -> HostMetrics:
         metrics = HostMetrics()
 
         # 1. CPU Load & Clocks
@@ -132,34 +132,6 @@ class HostBackend:
                 pagefile_used_gb=round(swap.used / (1024 ** 3), 2),
                 pagefile_total_gb=round(swap.total / (1024 ** 3), 2),
             )
-        except Exception:
-            pass
-
-        # 4. Top CPU Processes (limit to top 5)
-        top_procs = []
-        try:
-            for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_info"]):
-                try:
-                    info = p.info
-                    c_pct = info.get("cpu_percent")
-                    if c_pct and c_pct > 0.5:
-                        mem_info = info.get("memory_info")
-                        mem_mb = round(mem_info.rss / (1024 * 1024), 1) if mem_info else None
-                        top_procs.append(
-                            GpuProcess(
-                                pid=info["pid"],
-                                name=info["name"],
-                                memory_used_mb=mem_mb,
-                                process_type=f"{c_pct:.1f}% CPU",
-                            )
-                        )
-                except Exception:
-                    continue
-            top_procs.sort(
-                key=lambda x: float(x.process_type.split("%")[0]) if "%" in x.process_type else 0.0,
-                reverse=True,
-            )
-            metrics.top_processes = top_procs[:6]
         except Exception:
             pass
 
