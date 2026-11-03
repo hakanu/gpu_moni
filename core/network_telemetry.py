@@ -308,7 +308,7 @@ class NetworkTelemetryManager(QObject):
         self.server_enabled = True
         self.tailscale_enabled = True
         self.pin_remote_cards = False
-        self.condensed_view = False
+        self.condensed_view = True
         self.tailnet_name = ""
 
         self._lock = threading.Lock()
@@ -511,7 +511,7 @@ class NetworkTelemetryManager(QObject):
             self.server_enabled = bool(data.get("server_enabled", True))
             self.tailscale_enabled = bool(data.get("tailscale_enabled", True))
             self.pin_remote_cards = bool(data.get("pin_remote_cards", False))
-            self.condensed_view = bool(data.get("condensed_view", False))
+            self.condensed_view = bool(data.get("condensed_view_v2", True))
             for item in data.get("nodes", []):
                 # Filter valid fields
                 valid_keys = {f.name for f in dataclasses.fields(RemoteNodeConfig)}
@@ -542,6 +542,7 @@ class NetworkTelemetryManager(QObject):
                 "tailscale_enabled": self.tailscale_enabled,
                 "pin_remote_cards": self.pin_remote_cards,
                 "condensed_view": self.condensed_view,
+                "condensed_view_v2": self.condensed_view,
                 "nodes": nodes_data,
             }
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:

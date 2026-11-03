@@ -24,8 +24,9 @@ Usage:
   gpu-sentry-tui [OPTIONS]
 
 Modes & Options:
-  (default)               Launch GUI dashboard (automatically falls back to TUI on headless Linux/SSH)
-  --condensed             Launch GUI in Very Condensed View of Everything mode
+  (default)               Launch GUI dashboard in Very Condensed View (falls back to TUI on headless Linux/SSH)
+  --condensed             Launch GUI in Very Condensed View of Everything mode (default)
+  --expanded              Launch GUI in Expanded Full-Cards mode
   --no-tailscale          Start with Tailscale-based GPU discovery & polling turned OFF
   --tailscale             Start with Tailscale-based GPU discovery & polling turned ON
   --tui, -t               Launch bpytop-inspired 24-bit TrueColor Terminal UI (TUI)

@@ -30,6 +30,7 @@ Built specifically for multi-GPU workstations, Ubuntu AI/ROCm servers, and LAN/T
   - [Windows Start Menu & Autostart](#-windows-start-menu--autostart)
   - [Linux Wayland & System Tray](#-linux-wayland--system-tray)
 - [🏗️ Architecture](#-architecture)
+- [❓ FAQ & Troubleshooting](#-faq--troubleshooting)
 - [🛠️ Development & Packaging](#️-development--packaging)
 - [📄 License](#-license)
 
@@ -50,8 +51,8 @@ Built specifically for multi-GPU workstations, Ubuntu AI/ROCm servers, and LAN/T
 - **🔴 First-Class Native AMD (`amdgpu`), NVIDIA (`NVML`) & Intel (`i915`/`xe`) GPU Monitoring**:
   - Automatically discovers and displays all physical GPUs side by side with exact marketing model names (`AMD Radeon RX 7900 XTX`, `AMD Radeon 780M Graphics`, `NVIDIA GeForce RTX 4090`), architecture (`RDNA 3`, `RDNA 3.5`, `Ada Lovelace`, `Blackwell`), VBIOS version, and current vs. max PCIe link speed (`Gen 4 x16`).
   - **Zero-dependency Linux `amdgpu` DRM + `hwmon` backend**: reads dedicated VRAM & shared GTT memory, Edge / Junction (Hotspot) / VRAM Memory temperatures, board wattage & PPT power cap, Fan RPM & PWM %, GFX / Memory / SoC DPM clocks, and active ROCm Compute (`/dev/kfd`) & Graphics (`/dev/dri`) processes via `/proc/<pid>/fdinfo`.
-- **⚡ Multi-View Desktop GUI (Full Cards, Compact & Very Condensed View)**:
-  - **⚡ Very Condensed View of Everything (`⚡ Condensed` button / `--condensed`)**: Packs **Host CPU & RAM**, **All Local GPUs**, **All Tailscale/Network GPUs**, **Active GPU Processes**, and **Hardware Specs Summary** into a single ultra-dense, zero-scroll window (`CondensedDashboardWidget`).
+- **⚡ Multi-View Desktop GUI (Very Condensed View by Default + Full Cards & Compact Modes)**:
+  - **⚡ Very Condensed View of Everything (Default, or `--condensed` / `⚡ Condensed` button)**: Packs **Host CPU & RAM**, **All Local GPUs**, **All Tailscale/Network GPUs**, **Active GPU Processes**, and **Hardware Specs Summary** into a single ultra-dense, zero-scroll window (`CondensedDashboardWidget`). Uncheck **`⚡ Condensed`** (or pass `--expanded`) anytime to switch to the full multi-card view with radial arc gauges and 60s sparklines.
   - **🦊 1-Click Tailscale ON / OFF Controls (`🦊 Tailscale: ON/OFF` & `--no-tailscale`)**: Turn Tailscale-based GPU discovery and polling completely ON or OFF at any time from the top navigation bar, the Condensed view, the Network GPUs card, the System Tray menu, or by pressing `t` in `gpu-sentry-tui`. Individual remote nodes can also be toggled `ON` or `OFF` independently.
 - **🌐 Tailscale Tailnet & LAN GPU Monitoring (VRAM, Thermals & Wattage)**:
   - **Automatic Tailscale Tailnet GPU Discovery**: Scans `tailscale status --json` and probes online Linux & Windows Tailnet peers over Tailscale SSH / agent ports to automatically discover every machine equipped with an NVIDIA (`nvidia-smi`), AMD (`amdgpu` DRM/`hwmon`), or Intel (`i915`/`xe` DRM/`hwmon`) GPU.
@@ -300,8 +301,9 @@ Click **`🧬 Hardware Specs`** in the top navigation bar (or press `4` / `h` in
 
 | Command | Description |
 |---|---|
-| `gpu-sentry` | Launches the full GUI dashboard (auto-falls back to TUI on headless Linux/SSH) |
-| `gpu-sentry --condensed` | Launches the GUI directly in **⚡ Very Condensed View of Everything** mode |
+| `gpu-sentry` | Launches the GUI dashboard in **⚡ Very Condensed View** (auto-falls back to TUI on headless Linux/SSH) |
+| `gpu-sentry --condensed` | Explicitly launches the GUI in **⚡ Very Condensed View of Everything** mode (default) |
+| `gpu-sentry --expanded` | Launches the GUI in **Expanded Full-Cards** mode (with radial gauges & 60s sparklines) |
 | `gpu-sentry --no-tailscale` | Starts GUI or TUI with Tailscale-based GPU discovery & polling turned **OFF** |
 | `gpu-sentry --tailscale` | Starts GUI or TUI with Tailscale-based GPU discovery & polling turned **ON** |
 | `gpu-sentry-tui` / `gpu-sentry --tui` | Launches the **`bpytop`-inspired Terminal UI (TUI)** directly in your terminal |
@@ -426,6 +428,46 @@ gpu_moni/
 ├── install_shortcut.bat           # 1-click Start Menu & Desktop shortcut installer
 └── requirements.txt               # Minimal dependencies (PyQt6, psutil)
 ```
+
+---
+
+## ❓ FAQ & Troubleshooting
+
+### Q1: On Windows, `uv tool install` fails with `error: Invalid environment at C:\Users\<user>\AppData\Roaming\uv\tools\gpu-sentry: missing Python executable at ...\Scripts\python.exe`
+**Why this happens**: On Windows, if `gpu-sentry.exe` (or its tray/taskbar widget) is still running in the background while an uninstall or upgrade runs—or if the base Python installation referenced by the tool venv was updated—Windows locks `python.exe` and leaves behind a partial `uv\tools\gpu-sentry` folder.
+
+**Fix (PowerShell)**:
+```powershell
+taskkill /F /IM gpu-sentry.exe 2>$null
+taskkill /F /IM gpu-sentry-tui.exe 2>$null
+Remove-Item -Recurse -Force "$env:APPDATA\uv\tools\gpu-sentry" -ErrorAction SilentlyContinue
+uv tool install --reinstall --force git+https://github.com/hakanu/gpu_moni.git
+```
+
+**Fix (Command Prompt / `cmd.exe`)**:
+```cmd
+taskkill /F /IM gpu-sentry.exe
+taskkill /F /IM gpu-sentry-tui.exe
+rmdir /s /q "%APPDATA%\uv\tools\gpu-sentry"
+uv tool install --reinstall --force git+https://github.com/hakanu/gpu_moni.git
+```
+
+### Q2: How do I update `gpu-sentry` on Windows when it is running in the System Tray / Taskbar Widget?
+Close `gpu-sentry` from the system tray (`Right-click tray icon -> Exit`) or stop it with `taskkill` first so Windows releases the lock on `gpu-sentry.exe`, then run the update:
+```powershell
+taskkill /F /IM gpu-sentry.exe 2>$null
+uv tool install --upgrade --reinstall --force git+https://github.com/hakanu/gpu_moni.git
+```
+*(On Linux/Ubuntu, open files can be replaced in-place, so `gpu-sentry --update` or `uv tool install --upgrade --reinstall --force git+https://github.com/hakanu/gpu_moni.git` works even while the app is running.)*
+
+### Q3: How do I turn off Tailscale GPU scanning/polling if I only want local GPUs?
+- **In the GUI**: Click the **`🦊 Tailscale: ON`** button in the top navigation bar (it turns into **`🦊 Tailscale: OFF`** and remembers your choice across restarts). You can also toggle individual remote machines `ON` or `OFF` inside the Network GPUs panel.
+- **In the TUI (`gpu-sentry-tui`)**: Press `t` at any time to toggle Tailscale monitoring `ON` or `OFF`.
+- **Via CLI**: Launch with `gpu-sentry --no-tailscale` (or `gpu-sentry-tui --no-tailscale`).
+
+### Q4: How do I switch between the default Very Condensed View and the Full Cards View (with circular gauges & 60s sparklines)?
+- **In the GUI**: Click the **`⚡ Condensed`** button in the top navigation bar (or toggle **`⚡ Very Condensed View`** in the system tray menu).
+- **Via CLI**: Run `gpu-sentry --expanded` for Full Cards or `gpu-sentry --condensed` for the Condensed View.
 
 ---
 
