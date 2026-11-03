@@ -299,13 +299,16 @@ class NetworkTelemetryManager(QObject):
 
     nodes_updated = pyqtSignal(dict)  # Dict[str, RemoteNodeState]
     tailnet_scan_status = pyqtSignal(str)
+    tailscale_enabled_changed = pyqtSignal(bool)
 
     def __init__(self, os_name: str = "", parent=None):
         super().__init__(parent)
         self.local_server = LocalTelemetryServer(port=DEFAULT_HTTP_PORT)
         self.os_name = os_name
         self.server_enabled = True
-        self.pin_remote_cards = True
+        self.tailscale_enabled = True
+        self.pin_remote_cards = False
+        self.condensed_view = False
         self.tailnet_name = ""
 
         self._lock = threading.Lock()
@@ -315,6 +318,7 @@ class NetworkTelemetryManager(QObject):
         self._running = False
         self._scan_requested = False
         self._tailnet_scan_requested = False
+        self._wake_poll = False
 
         self._load_config()
 
@@ -325,14 +329,27 @@ class NetworkTelemetryManager(QObject):
         if self.server_enabled:
             self.local_server.start()
         self.request_lan_scan()
-        # Only auto-scan Tailnet on startup if no Tailscale nodes are saved yet
-        if not any(c.is_tailscale for c in self.configs.values()):
+        # Only auto-scan Tailnet on startup if Tailscale is enabled and no Tailscale nodes are saved yet
+        if self.tailscale_enabled and not any(c.is_tailscale for c in self.configs.values()):
             self.request_tailnet_scan()
         threading.Thread(target=self._poll_loop, daemon=True).start()
 
     def stop(self):
         self._running = False
         self.local_server.stop()
+
+    def get_visible_states(self) -> Dict[str, RemoteNodeState]:
+        """Returns node states respecting tailscale_enabled and per-node enabled flags."""
+        with self._lock:
+            out: Dict[str, RemoteNodeState] = {}
+            for nid, st in self.states.items():
+                cfg = self.configs.get(nid)
+                if cfg and not cfg.enabled:
+                    continue
+                if (st.is_tailscale or (cfg and cfg.is_tailscale)) and not self.tailscale_enabled:
+                    continue
+                out[nid] = st
+            return out
 
     def set_server_enabled(self, enabled: bool):
         self.server_enabled = enabled
@@ -342,11 +359,54 @@ class NetworkTelemetryManager(QObject):
             self.local_server.stop()
         self._save_config()
 
+    def set_tailscale_enabled(self, enabled: bool):
+        self.tailscale_enabled = bool(enabled)
+        if not self.tailscale_enabled:
+            self._tailnet_scan_requested = False
+            try:
+                self.tailnet_scan_status.emit("")
+            except RuntimeError:
+                pass
+        else:
+            if not any(c.is_tailscale for c in self.configs.values()):
+                self.request_tailnet_scan()
+            else:
+                self._wake_poll = True
+        self._save_config()
+        try:
+            self.tailscale_enabled_changed.emit(self.tailscale_enabled)
+        except RuntimeError:
+            pass
+        snapshot = self.get_visible_states()
+        if self._running:
+            try:
+                self.nodes_updated.emit(snapshot)
+            except RuntimeError:
+                pass
+
+    def set_condensed_view(self, condensed: bool):
+        self.condensed_view = bool(condensed)
+        self._save_config()
+
+    def set_node_enabled(self, node_id: str, enabled: bool):
+        with self._lock:
+            cfg = self.configs.get(node_id)
+            if cfg:
+                cfg.enabled = bool(enabled)
+                if enabled:
+                    self._wake_poll = True
+        self._save_config()
+        snapshot = self.get_visible_states()
+        if self._running:
+            try:
+                self.nodes_updated.emit(snapshot)
+            except RuntimeError:
+                pass
+
     def set_pin_remote_cards(self, pinned: bool):
         self.pin_remote_cards = pinned
         self._save_config()
-        with self._lock:
-            snapshot = dict(self.states)
+        snapshot = self.get_visible_states()
         if self._running:
             try:
                 self.nodes_updated.emit(snapshot)
@@ -434,7 +494,7 @@ class NetworkTelemetryManager(QObject):
         with self._lock:
             self.configs.pop(node_id, None)
             self.states.pop(node_id, None)
-            snapshot = dict(self.states)
+        snapshot = self.get_visible_states()
         self._save_config()
         if self._running:
             try:
@@ -449,7 +509,9 @@ class NetworkTelemetryManager(QObject):
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self.server_enabled = bool(data.get("server_enabled", True))
-            self.pin_remote_cards = bool(data.get("pin_remote_cards", True))
+            self.tailscale_enabled = bool(data.get("tailscale_enabled", True))
+            self.pin_remote_cards = bool(data.get("pin_remote_cards", False))
+            self.condensed_view = bool(data.get("condensed_view", False))
             for item in data.get("nodes", []):
                 # Filter valid fields
                 valid_keys = {f.name for f in dataclasses.fields(RemoteNodeConfig)}
@@ -477,7 +539,9 @@ class NetworkTelemetryManager(QObject):
                 ]
             data = {
                 "server_enabled": self.server_enabled,
+                "tailscale_enabled": self.tailscale_enabled,
                 "pin_remote_cards": self.pin_remote_cards,
+                "condensed_view": self.condensed_view,
                 "nodes": nodes_data,
             }
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -692,7 +756,7 @@ class NetworkTelemetryManager(QObject):
 
         discovered_count = 0
         for item in candidates:
-            if not self._running:
+            if not self._running or not self.tailscale_enabled:
                 break
             res = _probe_tailscale_peer(item)
             if res is not None:
@@ -704,8 +768,7 @@ class NetworkTelemetryManager(QObject):
 
         if discovered_count > 0:
             self._save_config()
-            with self._lock:
-                snapshot = dict(self.states)
+            snapshot = self.get_visible_states()
             if self._running:
                 try:
                     self.nodes_updated.emit(snapshot)
@@ -721,14 +784,20 @@ class NetworkTelemetryManager(QObject):
     def _poll_loop(self):
         last_discovery = 0.0
         while self._running:
+            self._wake_poll = False
             # 1. Poll configured nodes FIRST so saved Tailnet/LAN GPUs come online immediately (~1.4s total)
             with self._lock:
-                active_configs = [c for c in self.configs.values() if c.enabled]
+                active_configs = [
+                    c for c in self.configs.values()
+                    if c.enabled and (not c.is_tailscale or self.tailscale_enabled)
+                ]
 
             if active_configs:
                 for cfg in active_configs:
                     if not self._running:
                         break
+                    if cfg.is_tailscale and not self.tailscale_enabled:
+                        continue
                     try:
                         state = self._poll_single_node(cfg)
                         with self._lock:
@@ -738,7 +807,7 @@ class NetworkTelemetryManager(QObject):
                                 pass
                             else:
                                 self.states[cfg.node_id] = state
-                            snapshot = dict(self.states)
+                        snapshot = self.get_visible_states()
                         if self._running:
                             try:
                                 self.nodes_updated.emit(snapshot)
@@ -756,11 +825,12 @@ class NetworkTelemetryManager(QObject):
 
             if self._tailnet_scan_requested:
                 self._tailnet_scan_requested = False
-                self._discover_tailscale_nodes()
+                if self.tailscale_enabled:
+                    self._discover_tailscale_nodes()
 
             # 3. Wait 5.0 seconds before next poll cycle (wake early if manual scan requested)
             for _ in range(50):
-                if not self._running or self._scan_requested or self._tailnet_scan_requested:
+                if not self._running or self._scan_requested or self._tailnet_scan_requested or self._wake_poll:
                     break
                 time.sleep(0.1)
 

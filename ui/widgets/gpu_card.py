@@ -245,11 +245,12 @@ class GpuCard(QFrame):
         proc_layout.addLayout(proc_hdr)
 
         self.table_procs = QTableWidget()
-        self.table_procs.setColumnCount(3)
-        self.table_procs.setHorizontalHeaderLabels(["Process Name", "PID", "Type"])
+        self.table_procs.setColumnCount(4)
+        self.table_procs.setHorizontalHeaderLabels(["Process Name", "PID", "Type", "VRAM"])
         self.table_procs.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table_procs.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table_procs.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.table_procs.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.table_procs.verticalHeader().setVisible(False)
         self.table_procs.setFixedHeight(95)
         self.table_procs.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
@@ -280,6 +281,7 @@ class GpuCard(QFrame):
             hotspot_c=m.temp_hotspot_c or m.temp_extra_c,
             fan_pct=m.fan_speed_percent,
             fan_rpm=m.fan_speed_rpm,
+            mem_temp_c=m.temp_memory_c,
         )
 
         # 3. VRAM
@@ -290,9 +292,12 @@ class GpuCard(QFrame):
             self.lbl_vram_val.setText(f"{used_gb:.1f} / {total_gb:.1f} GB ({pct}%)")
             self.vram_bar.setValue(min(100, pct))
             free_gb = max(0.0, total_gb - used_gb)
-            self.lbl_vram_free.setText(f"Free: {free_gb:.1f} GB")
+            free_str = f"Free: {free_gb:.1f} GB"
+            if m.shared_used_mb >= 100:
+                free_str += f" • GTT Shared: {m.shared_used_mb / 1024.0:.1f} GB"
+            self.lbl_vram_free.setText(free_str)
         else:
-            self.lbl_vram_val.setText("N/A")
+            self.lbl_vram_val.setText("Shared Host RAM")
             self.vram_bar.setValue(0)
             self.lbl_vram_free.setText("Free: --")
 
@@ -315,6 +320,8 @@ class GpuCard(QFrame):
         # 5. Clocks
         core_clk = f"Core: {m.clock_graphics_mhz} MHz" if m.clock_graphics_mhz else "Core: --"
         mem_clk = f"Mem: {m.clock_memory_mhz} MHz" if m.clock_memory_mhz else "Mem: --"
+        if m.clock_soc_mhz:
+            mem_clk += f" • SoC: {m.clock_soc_mhz} MHz"
         self.lbl_clk_core.setText(core_clk)
         self.lbl_clk_mem.setText(mem_clk)
 
@@ -338,10 +345,14 @@ class GpuCard(QFrame):
             name_item = QTableWidgetItem(p.name)
             pid_item = QTableWidgetItem(str(p.pid))
             type_item = QTableWidgetItem(p.process_type)
+            vram_txt = f"{p.memory_used_mb:.1f} MB" if p.memory_used_mb is not None else "Shared"
+            vram_item = QTableWidgetItem(vram_txt)
 
             pid_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             type_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            vram_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
             self.table_procs.setItem(row, 0, name_item)
             self.table_procs.setItem(row, 1, pid_item)
             self.table_procs.setItem(row, 2, type_item)
+            self.table_procs.setItem(row, 3, vram_item)

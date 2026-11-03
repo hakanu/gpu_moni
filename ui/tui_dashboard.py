@@ -399,9 +399,12 @@ class BpytopTuiApp:
             self.bottom_mode = "specs" if self.bottom_mode == "procs" else "procs"
         elif k == "5":
             self.bottom_mode = "procs"
-        elif k in ("s", "t"):
+        elif k == "s":
             self.net_manager.request_lan_scan()
-            self.net_manager.request_tailnet_scan(force_reprobe=True)
+            if self.net_manager.tailscale_enabled:
+                self.net_manager.request_tailnet_scan(force_reprobe=True)
+        elif k == "t":
+            self.net_manager.set_tailscale_enabled(not self.net_manager.tailscale_enabled)
         elif k in ("+", "="):
             self.interval_ms = max(250, self.interval_ms - 250)
         elif k in ("-", "_"):
@@ -416,8 +419,7 @@ class BpytopTuiApp:
         # Calculate global stats
         total_pwr = sum(m.power_draw_w for m in self.latest_gpu_metrics.values())
         peak_temp = max((m.temp_core_c for m in self.latest_gpu_metrics.values()), default=0.0)
-        with self.net_manager._lock:
-            net_states = dict(self.net_manager.states)
+        net_states = self.net_manager.get_visible_states()
         online_net_gpus = sum(len(st.gpus) for st in net_states.values() if st.online)
 
         # 0. Top bpytop Header Bar
@@ -427,6 +429,7 @@ class BpytopTuiApp:
         k2 = f"{C_KEY}²{C_GREEN if self.show_gpu else C_MUTED}gpu{RESET}"
         k3 = f"{C_KEY}³{C_PURPLE if self.show_net else C_MUTED}tailnet({online_net_gpus}){RESET}"
         k4 = f"{C_KEY}⁴{C_AMBER if self.bottom_mode == 'specs' else C_TEXT}{'specs' if self.bottom_mode == 'specs' else 'procs'}{RESET}"
+        kt = f"{C_KEY}t{C_GREEN if self.net_manager.tailscale_enabled else C_MUTED}s:{'on' if self.net_manager.tailscale_enabled else 'off'}{RESET}"
         ks = f"{C_KEY}s{C_SUB}can{RESET}"
         kq = f"{C_KEY}q{C_SUB}uit{RESET}"
 
@@ -435,7 +438,7 @@ class BpytopTuiApp:
             f"{status_dot} {C_SUB}{self.interval_ms}ms ({self.poll_latency_ms}ms){RESET} │ "
             f"{C_AMBER}🔥 {total_pwr:.0f}W{RESET} │ {C_TEXT}🌡 Peak {peak_temp:.0f}°C{RESET}"
         )
-        hdr_right = f"{k1} {k2} {k3} {k4} {ks} {C_KEY}+/-{RESET} {kq} │ {BOLD}{C_TEXT}{now_str}{RESET}"
+        hdr_right = f"{k1} {k2} {k3} {k4} {kt} {ks} {C_KEY}+/-{RESET} {kq} │ {BOLD}{C_TEXT}{now_str}{RESET}"
         gap = max(1, width - visible_len(hdr_left) - visible_len(hdr_right) - 2)
         lines.append(" " + hdr_left + (" " * gap) + hdr_right)
 
@@ -640,9 +643,14 @@ class BpytopTuiApp:
         )
 
         if not states:
-            lines = [
-                f"{C_SUB}Scanning Tailscale Tailnet & LAN for GPU-equipped machines... (Press {C_KEY}s{C_SUB} to force scan){RESET}"
-            ]
+            if not self.net_manager.tailscale_enabled:
+                lines = [
+                    f"{C_MUTED}Tailscale GPU monitoring is OFF. (Press {C_KEY}t{C_MUTED} to enable Tailscale){RESET}"
+                ]
+            else:
+                lines = [
+                    f"{C_SUB}Scanning Tailscale Tailnet & LAN for GPU-equipped machines... (Press {C_KEY}s{C_SUB} to force scan, {C_KEY}t{C_SUB} to toggle Tailscale){RESET}"
+                ]
             return draw_box(title, lines, width, C_BORDER, r_title)
 
         def _sort_key(item):
@@ -882,6 +890,10 @@ def run_tui():
         if arg == "--interval" and idx + 1 < len(sys.argv) and sys.argv[idx + 1].isdigit():
             interval = int(sys.argv[idx + 1])
     app = BpytopTuiApp(interval_ms=interval)
+    if "--no-tailscale" in sys.argv:
+        app.net_manager.set_tailscale_enabled(False)
+    elif "--tailscale" in sys.argv:
+        app.net_manager.set_tailscale_enabled(True)
     if "--specs" in sys.argv:
         app.bottom_mode = "specs"
     if "--once" in sys.argv or "--dump" in sys.argv:

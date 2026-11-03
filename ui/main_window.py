@@ -1,6 +1,7 @@
 """
 Main Dashboard Window for multi-GPU monitoring.
-Hosts global summary telemetry, controls, responsive GPU cards, network GPU nodes, deep hardware specs, and system tray.
+Hosts global summary telemetry, controls, responsive GPU cards, network GPU nodes,
+Tailscale ON/OFF toggle, Very Condensed View of Everything, deep hardware specs, and system tray.
 """
 
 import os
@@ -25,6 +26,7 @@ from ui.widgets.gpu_card import GpuCard
 from ui.widgets.cpu_ram_card import CpuRamCard
 from ui.widgets.hardware_specs_card import HardwareSpecsCard
 from ui.widgets.network_nodes_card import NetworkNodesCard
+from ui.widgets.condensed_dashboard import CondensedDashboardWidget
 from ui.widgets.taskbar_widget import TaskbarWidget
 from core.shortcut import (
     is_start_menu_shortcut_installed,
@@ -36,11 +38,11 @@ from core.shortcut import (
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, start_condensed: Optional[bool] = None):
         super().__init__()
         self.setWindowTitle("GPU Sentry - Multi-GPU & Network Hardware Dashboard")
-        self.resize(1100, 900)
-        self.setMinimumSize(780, 520)
+        self.resize(1100, 880)
+        self.setMinimumSize(640, 360)
 
         # State
         self._is_quitting = False
@@ -58,12 +60,23 @@ class MainWindow(QMainWindow):
         self.cpu_ram_card.set_hardware_specs(self.hw_specs)
         self.hw_specs_card = HardwareSpecsCard(specs=self.hw_specs)
 
-        # Network Telemetry Manager & Card
+        # Network Telemetry Manager & Cards
         self.net_manager = NetworkTelemetryManager(os_name=self.hw_specs.os_info.os_name, parent=self)
         self.net_manager.nodes_updated.connect(self._on_network_nodes_updated)
+        self.net_manager.tailscale_enabled_changed.connect(self._on_tailscale_enabled_changed)
         self.network_card = NetworkNodesCard(self.net_manager)
 
+        # Very Condensed View of Everything Widget
+        self.condensed_dashboard = CondensedDashboardWidget(
+            hw_specs=self.hw_specs,
+            net_manager=self.net_manager,
+            parent=self,
+        )
+        self.condensed_dashboard.request_full_specs.connect(self._jump_to_hardware_specs)
+        self.condensed_dashboard.request_manage_network.connect(self._jump_to_network_gpus)
+
         self.latest_host_metrics: Optional[HostMetrics] = None
+        self.is_condensed = self.net_manager.condensed_view if start_condensed is None else bool(start_condensed)
         self.is_compact = False
         self.is_paused = False
         self.always_on_top = False
@@ -87,6 +100,9 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._setup_tray()
 
+        if self.is_condensed:
+            self._apply_condensed_mode(True, initial=True)
+
         # Start worker and network manager
         self.worker.start()
         self.net_manager.start()
@@ -96,20 +112,20 @@ class MainWindow(QMainWindow):
         central_widget.setObjectName("CentralWidget")
         self.setCentralWidget(central_widget)
 
-        root_layout = QVBoxLayout(central_widget)
-        root_layout.setContentsMargins(16, 14, 16, 12)
-        root_layout.setSpacing(12)
+        self.root_layout = QVBoxLayout(central_widget)
+        self.root_layout.setContentsMargins(14, 12, 14, 10)
+        self.root_layout.setSpacing(10)
 
         # 1. Top Navigation Bar
         top_bar = QHBoxLayout()
-        top_bar.setSpacing(8)
+        top_bar.setSpacing(6)
 
         # App Brand & Status
         brand_layout = QVBoxLayout()
-        brand_layout.setSpacing(2)
+        brand_layout.setSpacing(1)
 
         title_row = QHBoxLayout()
-        title_row.setSpacing(8)
+        title_row.setSpacing(6)
 
         # Neon Live Dot
         self.lbl_live_dot = QLabel("●")
@@ -117,21 +133,21 @@ class MainWindow(QMainWindow):
         title_row.addWidget(self.lbl_live_dot)
 
         lbl_app_name = QLabel("GPU SENTRY")
-        lbl_app_name.setStyleSheet("font-size: 18px; font-weight: 800; letter-spacing: 1px; color: #ffffff;")
+        lbl_app_name.setStyleSheet("font-size: 17px; font-weight: 800; letter-spacing: 1px; color: #ffffff;")
         title_row.addWidget(lbl_app_name)
 
-        lbl_sub = QLabel("LOCAL & NETWORK HARDWARE TELEMETRY")
-        lbl_sub.setStyleSheet(f"font-size: 10px; font-weight: 700; color: {Theme.TEXT_MUTED}; letter-spacing: 0.5px;")
+        self.lbl_sub = QLabel("LOCAL & NETWORK HARDWARE TELEMETRY")
+        self.lbl_sub.setStyleSheet(f"font-size: 9px; font-weight: 700; color: {Theme.TEXT_MUTED}; letter-spacing: 0.5px;")
 
         brand_layout.addLayout(title_row)
-        brand_layout.addWidget(lbl_sub)
+        brand_layout.addWidget(self.lbl_sub)
         top_bar.addLayout(brand_layout)
 
         top_bar.addStretch()
 
         # Controls Section
         lbl_refresh = QLabel("Interval:")
-        lbl_refresh.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 12px; font-weight: 600;")
+        lbl_refresh.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 11px; font-weight: 600;")
         top_bar.addWidget(lbl_refresh)
 
         self.cb_interval = QComboBox()
@@ -143,35 +159,54 @@ class MainWindow(QMainWindow):
         self.cb_interval.currentIndexChanged.connect(self._change_interval)
         top_bar.addWidget(self.cb_interval)
 
+        # Master Tailscale ON / OFF Toggle Button
+        self.btn_tailscale = QPushButton()
+        self.btn_tailscale.setCheckable(True)
+        self.btn_tailscale.setChecked(self.net_manager.tailscale_enabled)
+        self.btn_tailscale.setToolTip("Turn Tailscale-based GPU discovery & monitoring ON or OFF")
+        self.btn_tailscale.clicked.connect(self._on_toggle_tailscale)
+        self._style_top_tailscale_btn(self.net_manager.tailscale_enabled)
+        top_bar.addWidget(self.btn_tailscale)
+
+        # Very Condensed View of Everything Toggle Button
+        self.btn_condensed = QPushButton("⚡ Condensed")
+        self.btn_condensed.setCheckable(True)
+        self.btn_condensed.setChecked(self.is_condensed)
+        self.btn_condensed.setToolTip("Switch to Very Condensed View of Everything (CPU, RAM, Local GPUs, Tailscale GPUs & Processes in one dense view)")
+        self.btn_condensed.clicked.connect(self._toggle_condensed)
+        top_bar.addWidget(self.btn_condensed)
+
+        # Compact Card View toggle
+        self.btn_compact = QPushButton("🗗 Compact")
+        self.btn_compact.setCheckable(True)
+        self.btn_compact.setToolTip("Hide sparkline graphs and drawers on GPU/CPU cards")
+        self.btn_compact.clicked.connect(self._toggle_compact)
+        top_bar.addWidget(self.btn_compact)
+
         # Network GPUs Jump button
         self.btn_net_gpus = QPushButton("🌐 Network GPUs")
-        self.btn_net_gpus.setToolTip("Jump to LAN & Remote Network GPUs and Thermal Monitor")
+        self.btn_net_gpus.setToolTip("Jump to LAN & Tailscale Network GPUs Manager")
         self.btn_net_gpus.clicked.connect(self._jump_to_network_gpus)
         top_bar.addWidget(self.btn_net_gpus)
 
         # Hardware Specs Jump button
-        self.btn_hw_specs = QPushButton("🧬 Hardware Specs")
+        self.btn_hw_specs = QPushButton("🧬 Specs")
         self.btn_hw_specs.setToolTip("Jump to Deep Hardware Specifications (RAM MHz, Channels, Motherboard, BIOS, CPU, PCIe, NVMe)")
         self.btn_hw_specs.clicked.connect(self._jump_to_hardware_specs)
         top_bar.addWidget(self.btn_hw_specs)
 
         # Always On Top toggle
-        self.btn_pin = QPushButton("📌 Pin on Top")
+        self.btn_pin = QPushButton("📌 Pin")
         self.btn_pin.setCheckable(True)
+        self.btn_pin.setToolTip("Keep window always on top")
         self.btn_pin.clicked.connect(self._toggle_always_on_top)
         top_bar.addWidget(self.btn_pin)
 
-        # Compact View toggle
-        self.btn_compact = QPushButton("🗗 Compact")
-        self.btn_compact.setCheckable(True)
-        self.btn_compact.clicked.connect(self._toggle_compact)
-        top_bar.addWidget(self.btn_compact)
-
         # Taskbar Widget toggle
-        self.btn_taskbar = QPushButton("📊 Taskbar Widget")
+        self.btn_taskbar = QPushButton("📊 Widget")
         self.btn_taskbar.setCheckable(True)
         self.btn_taskbar.setChecked(self.taskbar_widget.isVisible())
-        self.btn_taskbar.setToolTip("Show/Hide live telemetry widget on Windows taskbar near clock")
+        self.btn_taskbar.setToolTip("Show/Hide live telemetry widget on taskbar near clock")
         self.btn_taskbar.clicked.connect(self._toggle_taskbar_widget)
         top_bar.addWidget(self.btn_taskbar)
 
@@ -180,11 +215,11 @@ class MainWindow(QMainWindow):
         self.btn_pause.clicked.connect(self._toggle_pause)
         top_bar.addWidget(self.btn_pause)
 
-        root_layout.addLayout(top_bar)
+        self.root_layout.addLayout(top_bar)
 
         # 2. Global Telemetry Summary Ribbon
         self.summary_ribbon = self._create_summary_ribbon()
-        root_layout.addWidget(self.summary_ribbon)
+        self.root_layout.addWidget(self.summary_ribbon)
 
         # 3. Scrollable GPU & Hardware Cards Container
         self.scroll_area = QScrollArea()
@@ -193,16 +228,16 @@ class MainWindow(QMainWindow):
 
         self.cards_container = QWidget()
         self.cards_layout = QVBoxLayout(self.cards_container)
-        self.cards_layout.setContentsMargins(0, 4, 0, 4)
-        self.cards_layout.setSpacing(14)
+        self.cards_layout.setContentsMargins(0, 2, 0, 2)
+        self.cards_layout.setSpacing(12)
         self.cards_layout.addStretch()
 
         self.scroll_area.setWidget(self.cards_container)
-        root_layout.addWidget(self.scroll_area, stretch=1)
+        self.root_layout.addWidget(self.scroll_area, stretch=1)
 
         # 4. Footer Status Bar
         footer = QHBoxLayout()
-        footer.setSpacing(16)
+        footer.setSpacing(14)
 
         self.lbl_footer_status = QLabel("Engine: Initializing...")
         self.lbl_footer_status.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 11px;")
@@ -218,7 +253,55 @@ class MainWindow(QMainWindow):
         self.lbl_last_updated.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 11px;")
         footer.addWidget(self.lbl_last_updated)
 
-        root_layout.addLayout(footer)
+        self.root_layout.addLayout(footer)
+
+    def _style_top_tailscale_btn(self, enabled: bool):
+        self.btn_tailscale.blockSignals(True)
+        self.btn_tailscale.setChecked(enabled)
+        self.btn_tailscale.blockSignals(False)
+        if enabled:
+            self.btn_tailscale.setText("🦊 Tailscale: ON")
+            self.btn_tailscale.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Theme.NVIDIA_GREEN}22;
+                    color: {Theme.NVIDIA_GREEN};
+                    border: 1px solid {Theme.NVIDIA_GREEN}88;
+                    border-radius: 6px;
+                    padding: 5px 11px;
+                    font-size: 11px;
+                    font-weight: 800;
+                }}
+                QPushButton:hover {{
+                    background-color: {Theme.NVIDIA_GREEN}33;
+                }}
+            """)
+        else:
+            self.btn_tailscale.setText("🦊 Tailscale: OFF")
+            self.btn_tailscale.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Theme.BG_SUBTLE};
+                    color: {Theme.TEXT_MUTED};
+                    border: 1px solid {Theme.BORDER_DEFAULT};
+                    border-radius: 6px;
+                    padding: 5px 11px;
+                    font-size: 11px;
+                    font-weight: 700;
+                }}
+                QPushButton:hover {{
+                    color: {Theme.TEXT_PRIMARY};
+                    border: 1px solid {Theme.BORDER_ACCENT};
+                }}
+            """)
+
+    def _on_toggle_tailscale(self, checked: bool):
+        self.net_manager.set_tailscale_enabled(checked)
+
+    def _on_tailscale_enabled_changed(self, enabled: bool):
+        self._style_top_tailscale_btn(enabled)
+        if hasattr(self, "act_tailscale"):
+            self.act_tailscale.blockSignals(True)
+            self.act_tailscale.setChecked(enabled)
+            self.act_tailscale.blockSignals(False)
 
     def _create_summary_ribbon(self) -> QFrame:
         ribbon = QFrame()
@@ -228,49 +311,49 @@ class MainWindow(QMainWindow):
                 background-color: {Theme.BG_PANEL};
                 border: 1px solid {Theme.BORDER_DEFAULT};
                 border-radius: 8px;
-                padding: 4px;
+                padding: 3px;
             }}
         """)
 
         layout = QHBoxLayout(ribbon)
-        layout.setContentsMargins(12, 6, 12, 6)
-        layout.setSpacing(20)
+        layout.setContentsMargins(10, 4, 10, 4)
+        layout.setSpacing(16)
 
         # Pill 1: CPU
         self.lbl_sum_cpu = QLabel("💻 CPU: -- % • -- °C")
-        self.lbl_sum_cpu.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {Theme.CYBER_CYAN};")
+        self.lbl_sum_cpu.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {Theme.CYBER_CYAN};")
         layout.addWidget(self.lbl_sum_cpu)
 
         # Pill 2: RAM
         self.lbl_sum_ram = QLabel("🧠 RAM: -- / -- GB")
-        self.lbl_sum_ram.setStyleSheet("font-size: 12px; font-weight: bold; color: #f0f6fc;")
+        self.lbl_sum_ram.setStyleSheet("font-size: 11px; font-weight: bold; color: #f0f6fc;")
         layout.addWidget(self.lbl_sum_ram)
 
         # Pill 3: GPUs Online
         self.lbl_sum_gpus = QLabel("⚡ GPUs: 0 Online")
-        self.lbl_sum_gpus.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {Theme.NVIDIA_GREEN};")
+        self.lbl_sum_gpus.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {Theme.NVIDIA_GREEN};")
         layout.addWidget(self.lbl_sum_gpus)
 
         # Pill 4: Total GPU Power
         self.lbl_sum_power = QLabel("🔥 GPU Power: 0 W")
-        self.lbl_sum_power.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {Theme.TEMP_WARM};")
+        self.lbl_sum_power.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {Theme.TEMP_WARM};")
         layout.addWidget(self.lbl_sum_power)
 
         # Pill 5: Peak GPU Temp
         self.lbl_sum_temp = QLabel("🌡 Peak GPU: -- °C")
-        self.lbl_sum_temp.setStyleSheet("font-size: 12px; font-weight: bold; color: #f0f6fc;")
+        self.lbl_sum_temp.setStyleSheet("font-size: 11px; font-weight: bold; color: #f0f6fc;")
         layout.addWidget(self.lbl_sum_temp)
 
         # Pill 6: Total VRAM
         self.lbl_sum_vram = QLabel("💾 Total VRAM: 0.0 / 0.0 GB")
-        self.lbl_sum_vram.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {Theme.TEXT_SECONDARY};")
+        self.lbl_sum_vram.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {Theme.TEXT_SECONDARY};")
         layout.addWidget(self.lbl_sum_vram)
 
         layout.addStretch()
 
         # Engine latency badge
         self.lbl_sum_latency = QLabel("Engine: <1ms")
-        self.lbl_sum_latency.setStyleSheet(f"font-size: 11px; color: {Theme.TEXT_MUTED};")
+        self.lbl_sum_latency.setStyleSheet(f"font-size: 10px; color: {Theme.TEXT_MUTED};")
         layout.addWidget(self.lbl_sum_latency)
 
         return ribbon
@@ -292,6 +375,20 @@ class MainWindow(QMainWindow):
 
         tray_menu.addSeparator()
 
+        self.act_condensed = QAction("⚡ Very Condensed View", self)
+        self.act_condensed.setCheckable(True)
+        self.act_condensed.setChecked(self.is_condensed)
+        self.act_condensed.triggered.connect(self._on_tray_toggle_condensed)
+        tray_menu.addAction(self.act_condensed)
+
+        self.act_tailscale = QAction("🦊 Tailscale GPU Monitoring", self)
+        self.act_tailscale.setCheckable(True)
+        self.act_tailscale.setChecked(self.net_manager.tailscale_enabled)
+        self.act_tailscale.triggered.connect(lambda c: self.net_manager.set_tailscale_enabled(c))
+        tray_menu.addAction(self.act_tailscale)
+
+        tray_menu.addSeparator()
+
         self.act_taskbar = QAction("Taskbar Widget", self)
         self.act_taskbar.setCheckable(True)
         self.act_taskbar.setChecked(self.taskbar_widget.isVisible())
@@ -310,7 +407,7 @@ class MainWindow(QMainWindow):
         self.act_start_menu.triggered.connect(self._toggle_start_menu_shortcut)
         tray_menu.addAction(self.act_start_menu)
 
-        self.act_autostart = QAction("🚀 Start on Windows Boot", self)
+        self.act_autostart = QAction("🚀 Start on System Login", self)
         self.act_autostart.setCheckable(True)
         self.act_autostart.setChecked(is_autostart_enabled())
         self.act_autostart.triggered.connect(self._toggle_autostart)
@@ -366,6 +463,8 @@ class MainWindow(QMainWindow):
                 self.activateWindow()
 
     def _jump_to_network_gpus(self):
+        if self.is_condensed:
+            self._apply_condensed_mode(False)
         if self.is_compact:
             self.btn_compact.setChecked(False)
             self._toggle_compact()
@@ -374,6 +473,8 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(50, lambda: self.scroll_area.ensureWidgetVisible(self.network_card, 0, 20))
 
     def _jump_to_hardware_specs(self):
+        if self.is_condensed:
+            self._apply_condensed_mode(False)
         if self.is_compact:
             self.btn_compact.setChecked(False)
             self._toggle_compact()
@@ -384,26 +485,41 @@ class MainWindow(QMainWindow):
     def _rebuild_cards_layout(self):
         # Detach existing widgets from layout without deleting persistent ones
         while self.cards_layout.count() > 0:
-            self.cards_layout.takeAt(0)
+            item = self.cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+
+        if self.is_condensed:
+            self.condensed_dashboard.setVisible(True)
+            self.cards_layout.addWidget(self.condensed_dashboard)
+            self.cards_layout.addStretch()
+            return
+
+        self.condensed_dashboard.setVisible(False)
 
         # 1. Host System (CPU & RAM) Card
+        self.cpu_ram_card.setVisible(True)
         self.cards_layout.addWidget(self.cpu_ram_card)
 
         # 2. Local GPU Cards
         for dev in self.local_devices:
             if dev.device_id in self.cards:
+                self.cards[dev.device_id].setVisible(True)
                 self.cards_layout.addWidget(self.cards[dev.device_id])
 
         # 3. Pinned Remote GPU Cards (if enabled)
         if self.net_manager.pin_remote_cards:
             for dev in self.remote_devices:
                 if dev.device_id in self.remote_cards:
+                    self.remote_cards[dev.device_id].setVisible(True)
                     self.cards_layout.addWidget(self.remote_cards[dev.device_id])
 
         # 4. Network Nodes & Remote GPU Thermal Monitor Card
+        self.network_card.setVisible(not self.is_compact)
         self.cards_layout.addWidget(self.network_card)
 
         # 5. Deep Hardware Specifications Card
+        self.hw_specs_card.setVisible(not self.is_compact)
         self.cards_layout.addWidget(self.hw_specs_card)
 
         self.cards_layout.addStretch()
@@ -419,6 +535,7 @@ class MainWindow(QMainWindow):
             card.set_compact_mode(self.is_compact)
             self.cards[dev.device_id] = card
 
+        self.condensed_dashboard.set_local_devices(devices)
         self.hw_specs_card.set_devices(devices)
         self._rebuild_cards_layout()
         self._update_gpu_count_labels()
@@ -441,7 +558,7 @@ class MainWindow(QMainWindow):
 
         # Update top navbar button badge
         if new_remote_devs:
-            self.btn_net_gpus.setText(f"🌐 Network GPUs ({len(new_remote_devs)})")
+            self.btn_net_gpus.setText(f"🌐 Network ({len(new_remote_devs)})")
         else:
             self.btn_net_gpus.setText("🌐 Network GPUs")
 
@@ -465,9 +582,9 @@ class MainWindow(QMainWindow):
             self._rebuild_cards_layout()
             self.taskbar_widget.set_devices(self.local_devices + self.remote_devices)
         else:
-            # Make sure visibility matches pin_remote_cards
+            # Make sure visibility matches pin_remote_cards and condensed mode
             for rcard in self.remote_cards.values():
-                rcard.setVisible(self.net_manager.pin_remote_cards)
+                rcard.setVisible(self.net_manager.pin_remote_cards and not self.is_condensed)
 
         # Push live metrics to pinned remote GPU cards
         for dev_id, m in new_remote_metrics.items():
@@ -484,14 +601,16 @@ class MainWindow(QMainWindow):
         else:
             self.lbl_sum_gpus.setText(f"⚡ GPUs: {n_local} Online")
         mb_str = f" • {self.hw_specs.motherboard.product}" if self.hw_specs.motherboard.product else ""
+        ts_str = " • Tailscale: ON" if self.net_manager.tailscale_enabled else " • Tailscale: OFF"
         net_str = f" + {n_rem} Network GPUs" if n_rem > 0 else ""
         self.lbl_footer_status.setText(
-            f"Active Monitoring: CPU + RAM + {n_local} Local GPUs{net_str}{mb_str} (Direct C + LAN Telemetry)"
+            f"Active Monitoring: CPU + RAM + {n_local} Local GPUs{net_str}{ts_str}{mb_str}"
         )
 
     def _on_host_updated(self, host_metrics: HostMetrics):
         self.latest_host_metrics = host_metrics
         self.cpu_ram_card.update_metrics(host_metrics)
+        self.condensed_dashboard.update_host_metrics(host_metrics)
         combined_metrics = {**self.cards_metrics, **self.remote_metrics}
         self.taskbar_widget.update_telemetry(host_metrics, combined_metrics, self.latest_summary)
         self.net_manager.update_local_telemetry(self.local_devices, self.cards_metrics, host_metrics)
@@ -501,6 +620,8 @@ class MainWindow(QMainWindow):
         for dev_id, m in metrics_by_id.items():
             if dev_id in self.cards:
                 self.cards[dev_id].update_metrics(m)
+
+        self.condensed_dashboard.update_local_metrics(metrics_by_id)
 
         # Share local snapshot with network server
         self.net_manager.update_local_telemetry(self.local_devices, metrics_by_id, self.latest_host_metrics)
@@ -605,19 +726,19 @@ class MainWindow(QMainWindow):
         ram_tot = summary.get("ram_total_gb", 0)
         ram_pct = summary.get("ram_load_pct", 0)
         ram_speed_str = f" • {self.hw_specs.ram.configured_speed_mts} MT/s" if self.hw_specs.ram.configured_speed_mts else ""
-        self.lbl_sum_ram.setText(f"🧠 RAM: {ram_u:.1f} / {ram_tot:.1f} GB ({ram_pct:.0f}%{ram_speed_str})")
+        self.lbl_sum_ram.setText(f"🧠 RAM: {ram_u:.1f}/{ram_tot:.1f} GB ({ram_pct:.0f}%{ram_speed_str})")
 
         # GPU summaries
-        self.lbl_sum_power.setText(f"🔥 GPU Power: {summary.get('total_power_w', 0)} W")
+        self.lbl_sum_power.setText(f"🔥 Power: {summary.get('total_power_w', 0)} W")
 
-        self.lbl_sum_temp.setText(f"🌡 Peak GPU: {peak_t:.0f}°C ({peak_gpu})")
+        self.lbl_sum_temp.setText(f"🌡 Peak GPU: {peak_t:.0f}°C ({peak_gpu[:18]})")
         color = Theme.get_temp_color(peak_t)
-        self.lbl_sum_temp.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {color};")
+        self.lbl_sum_temp.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {color};")
 
-        self.lbl_sum_vram.setText(f"💾 Total VRAM: {used_gb:.1f} / {cap_gb:.1f} GB")
+        self.lbl_sum_vram.setText(f"💾 VRAM: {used_gb:.1f}/{cap_gb:.1f} GB")
 
         lat = summary.get("poll_latency_ms", 0)
-        self.lbl_sum_latency.setText(f"Poll Latency: {lat} ms")
+        self.lbl_sum_latency.setText(f"Poll: {lat} ms")
 
     def _change_interval(self, index):
         ms = self.cb_interval.currentData()
@@ -632,10 +753,45 @@ class MainWindow(QMainWindow):
             self.btn_pin.setText("📌 Pinned")
         else:
             self.setWindowFlags(flags & ~Qt.WindowType.WindowStaysOnTopHint)
-            self.btn_pin.setText("📌 Pin on Top")
+            self.btn_pin.setText("📌 Pin")
         self.show()
 
+    def _toggle_condensed(self):
+        self._apply_condensed_mode(self.btn_condensed.isChecked())
+
+    def _on_tray_toggle_condensed(self, checked: bool):
+        self._apply_condensed_mode(checked)
+
+    def _apply_condensed_mode(self, condensed: bool, initial: bool = False):
+        self.is_condensed = bool(condensed)
+        self.net_manager.set_condensed_view(self.is_condensed)
+
+        self.btn_condensed.blockSignals(True)
+        self.btn_condensed.setChecked(self.is_condensed)
+        self.btn_condensed.blockSignals(False)
+
+        if hasattr(self, "act_condensed"):
+            self.act_condensed.blockSignals(True)
+            self.act_condensed.setChecked(self.is_condensed)
+            self.act_condensed.blockSignals(False)
+
+        if self.is_condensed:
+            self.root_layout.setContentsMargins(10, 8, 10, 6)
+            self.root_layout.setSpacing(6)
+            self.lbl_sub.setVisible(False)
+            self._rebuild_cards_layout()
+            self.resize(960, 500)
+        else:
+            self.root_layout.setContentsMargins(14, 12, 14, 10)
+            self.root_layout.setSpacing(10)
+            self.lbl_sub.setVisible(True)
+            self._rebuild_cards_layout()
+            if not initial:
+                self.resize(1100, 880)
+
     def _toggle_compact(self):
+        if self.is_condensed and self.btn_compact.isChecked():
+            self._apply_condensed_mode(False)
         self.is_compact = self.btn_compact.isChecked()
         self.cpu_ram_card.set_compact_mode(self.is_compact)
         for card in self.cards.values():
@@ -651,7 +807,7 @@ class MainWindow(QMainWindow):
         else:
             self.summary_ribbon.setVisible(True)
             self.btn_compact.setText("🗗 Compact")
-            self.resize(1100, 900)
+            self.resize(1100, 880)
 
     def _toggle_pause(self):
         self.is_paused = not self.is_paused
@@ -685,7 +841,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         if not getattr(self, "_is_quitting", False) and (self.taskbar_widget.isVisible() or self.tray.isVisible()):
-            # Keep monitoring active on the Windows taskbar and system tray
+            # Keep monitoring active on the taskbar and system tray
             event.ignore()
             self.hide()
             return

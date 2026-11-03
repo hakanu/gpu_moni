@@ -189,7 +189,13 @@ def main():
     if os.path.isfile(icon_path):
         app.setWindowIcon(QIcon(icon_path))
 
-    window = MainWindow()
+    start_condensed = True if "--condensed" in sys.argv else (False if "--expanded" in sys.argv else None)
+    window = MainWindow(start_condensed=start_condensed)
+
+    if "--no-tailscale" in sys.argv:
+        window.net_manager.set_tailscale_enabled(False)
+    elif "--tailscale" in sys.argv:
+        window.net_manager.set_tailscale_enabled(True)
 
     if "--minimized" in sys.argv:
         window.hide()

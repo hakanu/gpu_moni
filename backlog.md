@@ -17,6 +17,11 @@
   - Added automatic headless fallback in `main.py` so running `gpu-sentry` over SSH without `$DISPLAY`/`$WAYLAND_DISPLAY` launches the TUI automatically and `--agent` runs without requiring `PyQt6`.
   - Added non-root Linux SMBIOS Type 16/17 DIMM inspection via `/run/udev/data/+dmi:id` in `core/hardware_info.py`.
   - Verified on Ubuntu AMD discrete (`hakuxtx` — RX 7900 XTX) and AMD APU (`gmk` — Radeon 780M) systems.
+- [x] **GUI Tailscale ON/OFF Controls & Very Condensed View of Everything**:
+  - Added master **`🦊 Tailscale: ON / OFF`** toggle button in the top navigation bar (`ui/main_window.py`), `NetworkNodesCard` header (`ui/widgets/network_nodes_card.py`), `CondensedDashboardWidget` (`ui/widgets/condensed_dashboard.py`), System Tray menu, and `t` hotkey in TUI (`ui/tui_dashboard.py`), plus `--no-tailscale` / `--tailscale` CLI flags.
+  - Added per-node `ON` / `OFF` enable/disable toggles in `NetworkNodesCard` and `CondensedDashboardWidget`.
+  - Created **`CondensedDashboardWidget`** ([ui/widgets/condensed_dashboard.py](file:///mnt/DEV_NAS/CODE/workspace-py/gpu_moni/ui/widgets/condensed_dashboard.py)) and the **`⚡ Condensed`** toggle button (`--condensed`) to show CPU, RAM, Local GPUs, Tailscale GPUs, Active GPU Processes, and Hardware Specs in a single ultra-dense view.
+  - Added **`⚡ Condensed Rows`** mode (enabled by default) inside `NetworkNodesCard`.
 - [x] **Documentation (`README.md`)**:
   - Documented `uv` installation and git-based self-update workflows, Ubuntu setup, native AMD `amdgpu` telemetry features, and TUI usage.
 

@@ -61,10 +61,18 @@ class ThermalBar(QWidget):
         bot_row.addStretch()
         layout.addLayout(bot_row)
 
-    def set_thermal_data(self, temp_c: float, hotspot_c: float = None, fan_pct: float = None, fan_rpm: int = None):
+    def set_thermal_data(
+        self,
+        temp_c: float,
+        hotspot_c: float = None,
+        fan_pct: float = None,
+        fan_rpm: int = None,
+        mem_temp_c: float = None,
+    ):
         self.temp_c = temp_c
-        color_hex = Theme.get_temp_color(temp_c)
-        status_text = Theme.get_temp_status(temp_c)
+        eff_temp = max(temp_c, (hotspot_c - 22.0) if hotspot_c else 0.0)
+        color_hex = Theme.get_temp_color(eff_temp)
+        status_text = Theme.get_temp_status(eff_temp)
 
         self.lbl_temp.setText(f"{int(round(temp_c))}°C")
         self.lbl_temp.setStyleSheet(f"font-size: 22px; font-weight: bold; color: {color_hex};")
@@ -76,21 +84,28 @@ class ThermalBar(QWidget):
         )
 
         # Fan
-        if fan_pct is not None and fan_pct >= 0:
-            if fan_rpm and fan_rpm > 0:
-                self.lbl_fan.setText(f"Fan: {int(fan_pct)}% ({fan_rpm} RPM)")
+        if fan_rpm and fan_rpm > 0:
+            if fan_pct is not None and fan_pct > 0:
+                self.lbl_fan.setText(f"Fan: {fan_rpm} RPM ({int(fan_pct)}%)")
             else:
-                self.lbl_fan.setText(f"Fan: {int(fan_pct)}%")
+                self.lbl_fan.setText(f"Fan: {fan_rpm} RPM")
+        elif fan_pct is not None and fan_pct >= 0:
+            self.lbl_fan.setText(f"Fan: {int(fan_pct)}%")
         else:
             self.lbl_fan.setText("Fan: N/A")
 
-        # Hotspot
+        # Hotspot & Memory Temp
+        extra_parts = []
         if hotspot_c is not None and hotspot_c > 0:
-            self.lbl_hotspot.setText(f"Hotspot / Extra: {int(round(hotspot_c))}°C")
+            extra_parts.append(f"Junc/Hotspot: {int(round(hotspot_c))}°C")
+        if mem_temp_c is not None and mem_temp_c > 0:
+            extra_parts.append(f"Mem: {int(round(mem_temp_c))}°C")
+        if extra_parts:
+            self.lbl_hotspot.setText(" • ".join(extra_parts))
         else:
             self.lbl_hotspot.setText("Hotspot: Normal")
 
-        self.bar_canvas.set_temp(temp_c)
+        self.bar_canvas.set_temp(eff_temp)
 
 
 class _ThermalCanvas(QWidget):

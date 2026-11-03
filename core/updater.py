@@ -25,6 +25,9 @@ Usage:
 
 Modes & Options:
   (default)               Launch GUI dashboard (automatically falls back to TUI on headless Linux/SSH)
+  --condensed             Launch GUI in Very Condensed View of Everything mode
+  --no-tailscale          Start with Tailscale-based GPU discovery & polling turned OFF
+  --tailscale             Start with Tailscale-based GPU discovery & polling turned ON
   --tui, -t               Launch bpytop-inspired 24-bit TrueColor Terminal UI (TUI)
   --once, --dump          Render a single TUI telemetry frame to stdout and exit
   --interval <ms>         Set TUI polling interval in milliseconds (default: 1000)

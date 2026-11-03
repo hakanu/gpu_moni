@@ -50,6 +50,9 @@ Built specifically for multi-GPU workstations, Ubuntu AI/ROCm servers, and LAN/T
 - **🔴 First-Class Native AMD (`amdgpu`), NVIDIA (`NVML`) & Intel (`i915`/`xe`) GPU Monitoring**:
   - Automatically discovers and displays all physical GPUs side by side with exact marketing model names (`AMD Radeon RX 7900 XTX`, `AMD Radeon 780M Graphics`, `NVIDIA GeForce RTX 4090`), architecture (`RDNA 3`, `RDNA 3.5`, `Ada Lovelace`, `Blackwell`), VBIOS version, and current vs. max PCIe link speed (`Gen 4 x16`).
   - **Zero-dependency Linux `amdgpu` DRM + `hwmon` backend**: reads dedicated VRAM & shared GTT memory, Edge / Junction (Hotspot) / VRAM Memory temperatures, board wattage & PPT power cap, Fan RPM & PWM %, GFX / Memory / SoC DPM clocks, and active ROCm Compute (`/dev/kfd`) & Graphics (`/dev/dri`) processes via `/proc/<pid>/fdinfo`.
+- **⚡ Multi-View Desktop GUI (Full Cards, Compact & Very Condensed View)**:
+  - **⚡ Very Condensed View of Everything (`⚡ Condensed` button / `--condensed`)**: Packs **Host CPU & RAM**, **All Local GPUs**, **All Tailscale/Network GPUs**, **Active GPU Processes**, and **Hardware Specs Summary** into a single ultra-dense, zero-scroll window (`CondensedDashboardWidget`).
+  - **🦊 1-Click Tailscale ON / OFF Controls (`🦊 Tailscale: ON/OFF` & `--no-tailscale`)**: Turn Tailscale-based GPU discovery and polling completely ON or OFF at any time from the top navigation bar, the Condensed view, the Network GPUs card, the System Tray menu, or by pressing `t` in `gpu-sentry-tui`. Individual remote nodes can also be toggled `ON` or `OFF` independently.
 - **🌐 Tailscale Tailnet & LAN GPU Monitoring (VRAM, Thermals & Wattage)**:
   - **Automatic Tailscale Tailnet GPU Discovery**: Scans `tailscale status --json` and probes online Linux & Windows Tailnet peers over Tailscale SSH / agent ports to automatically discover every machine equipped with an NVIDIA (`nvidia-smi`), AMD (`amdgpu` DRM/`hwmon`), or Intel (`i915`/`xe` DRM/`hwmon`) GPU.
   - **Dedicated Tailnet VRAM, Multi-Sensor Thermals & Wattage Tracking**:
@@ -282,6 +285,9 @@ Click **`🧬 Hardware Specs`** in the top navigation bar (or press `4` / `h` in
 | Command | Description |
 |---|---|
 | `gpu-sentry` | Launches the full GUI dashboard (auto-falls back to TUI on headless Linux/SSH) |
+| `gpu-sentry --condensed` | Launches the GUI directly in **⚡ Very Condensed View of Everything** mode |
+| `gpu-sentry --no-tailscale` | Starts GUI or TUI with Tailscale-based GPU discovery & polling turned **OFF** |
+| `gpu-sentry --tailscale` | Starts GUI or TUI with Tailscale-based GPU discovery & polling turned **ON** |
 | `gpu-sentry-tui` / `gpu-sentry --tui` | Launches the **`bpytop`-inspired Terminal UI (TUI)** directly in your terminal |
 | `gpu-sentry-tui --once` | Renders one TUI telemetry snapshot to stdout and exits |
 | `gpu-sentry-tui --once --specs` | Renders one TUI snapshot with the **Deep Hardware & SMBIOS Specs** panel open |
