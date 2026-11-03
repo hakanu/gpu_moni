@@ -23,6 +23,7 @@ from core.hardware_info import HardwareInfoCollector, SystemHardwareSpecs
 from core.nvml_backend import NvmlBackend
 from core.adl_backend import AdlBackend
 from core.dxgi_backend import DxgiBackend
+from core.drm_backend import LinuxDrmBackend
 from core.host_backend import HostBackend
 from core.network_telemetry import NetworkTelemetryManager, RemoteNodeState
 
@@ -197,11 +198,21 @@ def draw_box(
 ) -> List[str]:
     inner_w = max(10, width - 2)
     title_block = f"─ {title} "
+    if visible_len(title_block) > inner_w:
+        title_block = pad_ansi(title_block, inner_w)
     t_vlen = visible_len(title_block)
 
     if right_title:
         r_block = f" {right_title} ─"
         r_vlen = visible_len(r_block)
+        if t_vlen + r_vlen > inner_w:
+            avail_r = inner_w - t_vlen - 3
+            if avail_r > 8:
+                r_block = f" {pad_ansi(right_title, avail_r)} {border_color}─"
+                r_vlen = visible_len(r_block)
+            else:
+                r_block = ""
+                r_vlen = 0
     else:
         r_block = ""
         r_vlen = 0
@@ -237,6 +248,7 @@ class BpytopTuiApp:
         self.nvml = NvmlBackend()
         self.adl = AdlBackend()
         self.dxgi = DxgiBackend()
+        self.drm = LinuxDrmBackend(nvml_available=self.nvml.available)
         self.host = HostBackend(adl_backend=self.adl)
         self.devices: List[GpuDevice] = self._discover_local_devices()
         self.hw_specs: SystemHardwareSpecs = HardwareInfoCollector.collect_all()
@@ -273,6 +285,27 @@ class BpytopTuiApp:
                     used_luids.add(d.luid)
                     d.vram_total_mb = dx["dedicated_vram_mb"]
                 discovered.append(d)
+        for adp in self.dxgi.adapters:
+            if adp["luid_key"] in used_luids:
+                continue
+            desc_lower = adp["description"].lower()
+            if "basic render" in desc_lower or "software" in desc_lower or adp["dedicated_vram_mb"] <= 0:
+                continue
+            v_name = "Intel" if adp["vendor_id"] == 0x8086 else "Other"
+            discovered.append(
+                GpuDevice(
+                    device_id=f"dxgi_{len(discovered)}",
+                    index=len(discovered),
+                    name=adp["description"],
+                    vendor=v_name,
+                    vram_total_mb=adp["dedicated_vram_mb"],
+                    luid=adp["luid_key"],
+                )
+            )
+        if self.drm.available:
+            for d in self.drm.get_devices(start_index=len(discovered)):
+                if not any(existing.device_id == d.device_id for existing in discovered):
+                    discovered.append(d)
         return discovered
 
     def _enable_windows_vt_mode(self):
@@ -293,15 +326,17 @@ class BpytopTuiApp:
 
         for dev in self.devices:
             m = GpuMetrics()
-            if dev.vendor == "NVIDIA" and self.nvml.available:
+            if dev.vendor == "NVIDIA" and self.nvml.available and dev.device_id.startswith("nvidia_"):
                 m = self.nvml.sample_metrics(dev.index)
-            elif dev.vendor == "AMD" and self.adl.available:
+            elif dev.vendor == "AMD" and self.adl.available and dev.device_id.startswith("amd_"):
                 m = self.adl.sample_metrics(dev.index)
                 if dev.luid in pdh_mems:
                     m.vram_used_mb = pdh_mems[dev.luid]
                 m.vram_total_mb = dev.vram_total_mb
                 if m.vram_total_mb > 0:
                     m.vram_free_mb = max(0.0, m.vram_total_mb - m.vram_used_mb)
+            elif dev.device_id.startswith("drm_") and self.drm.available:
+                m = self.drm.sample_metrics(dev.device_id)
             else:
                 if dev.luid in pdh_mems:
                     m.vram_used_mb = pdh_mems[dev.luid]
@@ -318,7 +353,9 @@ class BpytopTuiApp:
         self.poll_latency_ms = round((time.perf_counter() - t0) * 1000.0, 1)
         try:
             import psutil
-            self.app_ram_mb = round(psutil.Process().memory_info().vms / (1024 * 1024), 1)
+            mem_info = psutil.Process().memory_info()
+            raw_bytes = mem_info.vms if sys.platform == "win32" else mem_info.rss
+            self.app_ram_mb = round(raw_bytes / (1024 * 1024), 1)
         except Exception:
             pass
 
@@ -439,14 +476,15 @@ class BpytopTuiApp:
         )
 
         inner_w = width - 4
-        spark_w = max(16, min(42, inner_w // 3))
+        spark_w = max(8, min(38, inner_w - 68))
+        bar_w = 12 if inner_w >= 105 else 8
         spark = braille_sparkline(list(self.cpu_history), spark_w, load_rgb)
 
         pwr_str = f"{cpu.power_draw_w:.1f}W" if cpu.power_draw_w else "--W"
         freq_ghz = cpu.freq_mhz / 1000.0 if cpu.freq_mhz else 0.0
 
         row1 = (
-            f"{C_SUB}CPU{RESET} {spark} { meter_bar(cpu.load_percent, 12) } "
+            f"{C_SUB}CPU{RESET} {spark} {meter_bar(cpu.load_percent, bar_w)} "
             f"{BOLD}{C_CYAN}{cpu.load_percent:5.1f}%{RESET} │ "
             f"{temp_badge(cpu.temp_core_c)} │ "
             f"{C_AMBER}⚡ {pwr_str:>6}{RESET} │ "
@@ -486,7 +524,17 @@ class BpytopTuiApp:
     def _build_local_gpus_box(self, width: int) -> List[str]:
         devs = self.devices
         title = f"{C_KEY}²{BOLD}{C_GREEN}local gpus ({len(devs)} online){RESET}"
-        r_title = f"{C_SUB}Direct C NVML / ADL / DXGI Telemetry{RESET}"
+        backend_label = "Direct C NVML / AMDGPU DRM & hwmon Telemetry" if sys.platform.startswith("linux") else "Direct C NVML / ADL / DXGI Telemetry"
+        r_title = f"{C_SUB}{backend_label}{RESET}"
+
+        if not devs:
+            return draw_box(
+                title,
+                [f"{C_MUTED}No local dedicated or integrated GPUs detected on this host.{RESET}"],
+                width,
+                C_BORDER,
+                r_title,
+            )
 
         box_lines = []
         inner_w = width - 4
@@ -503,29 +551,58 @@ class BpytopTuiApp:
                 arch_info += f" • {dev.cuda_cores} Cores"
             if dev.pcie_gen and dev.pcie_width:
                 arch_info += f" • PCIe Gen{dev.pcie_gen}x{dev.pcie_width}"
-                if dev.pcie_max_gen:
+                if dev.pcie_max_gen and (
+                    dev.pcie_max_gen != dev.pcie_gen
+                    or dev.pcie_max_width != dev.pcie_width
+                    or len(arch_info) <= 24
+                ):
                     arch_info += f"(Max Gen{dev.pcie_max_gen}x{dev.pcie_max_width})"
 
             vram_u_gb = m.vram_used_mb / 1024.0
             vram_t_gb = m.vram_total_mb / 1024.0 if m.vram_total_mb > 0 else 0.0
             vram_pct = (m.vram_used_mb / m.vram_total_mb * 100.0) if m.vram_total_mb > 0 else 0.0
 
-            pwr_txt = f"{m.power_draw_w:5.1f}W"
-            if m.power_limit_w:
+            pwr_txt = f"{m.power_draw_w:5.1f}W" if m.power_draw_w > 0 else "  --W"
+            if m.power_limit_w and m.power_limit_w > 0:
                 pwr_txt += f"/{m.power_limit_w:.0f}W"
 
-            fan_txt = f"{m.fan_speed_percent:.0f}%" if m.fan_speed_percent is not None else "--%"
-            clk_txt = f"{m.clock_graphics_mhz or '--'} / {m.clock_memory_mhz or '--'} MHz"
+            # Multi-sensor thermal details (Edge + Junction/Hotspot + Memory + Fan RPM/%)
+            eff_temp = max(m.temp_core_c, (m.temp_hotspot_c - 22.0) if m.temp_hotspot_c else 0.0)
+            extra_therm = []
+            if m.temp_hotspot_c and m.temp_hotspot_c > 0:
+                extra_therm.append(f"Junc:{m.temp_hotspot_c:.0f}°C")
+            if m.temp_memory_c and m.temp_memory_c > 0:
+                extra_therm.append(f"Mem:{m.temp_memory_c:.0f}°C")
+            if m.fan_speed_rpm is not None and m.fan_speed_rpm > 0:
+                if m.fan_speed_percent is not None and m.fan_speed_percent > 0:
+                    extra_therm.append(f"🌀{m.fan_speed_rpm}RPM({m.fan_speed_percent:.0f}%)")
+                else:
+                    extra_therm.append(f"🌀{m.fan_speed_rpm}RPM")
+            elif m.fan_speed_percent is not None:
+                extra_therm.append(f"🌀{m.fan_speed_percent:.0f}%")
+            else:
+                extra_therm.append("🌀--%")
+            therm_detail = " ".join(extra_therm)
+
+            clk_txt = f"{m.clock_graphics_mhz or '--'}/{m.clock_memory_mhz or '--'}MHz"
+            if m.clock_soc_mhz:
+                clk_txt += f" (SoC:{m.clock_soc_mhz})"
+
+            if m.vram_total_mb > 0:
+                gtt_tag = f" {C_MUTED}(GTT:{m.shared_used_mb / 1024.0:.1f}G){RESET}" if m.shared_used_mb >= 100 else ""
+                vram_section = f"{C_SUB}VRAM:{RESET} {meter_bar(vram_pct, 8)} {BOLD}{C_TEXT}{vram_u_gb:4.1f}/{vram_t_gb:4.1f}GB{RESET}({vram_pct:2.0f}%){gtt_tag}"
+            else:
+                vram_section = f"{C_SUB}VRAM:{RESET} {C_MUTED}Shared Host RAM{RESET}"
 
             line1 = (
                 f"{v_col}{BOLD}GPU{dev.index} {dev.name[:28]:<28}{RESET} {spark} "
                 f"{meter_bar(m.gpu_util_percent, 10)} {BOLD}{C_TEXT}{m.gpu_util_percent:4.0f}%{RESET} │ "
-                f"{temp_badge(m.temp_core_c)} {C_SUB}🌀{fan_txt:>4}{RESET}"
+                f"{temp_badge(m.temp_core_c, eff_temp)} {C_SUB}{therm_detail}{RESET}"
             )
             line2 = (
-                f"     {C_SUB}{arch_info:<38}{RESET} │ "
-                f"{C_SUB}VRAM:{RESET} {meter_bar(vram_pct, 10)} {BOLD}{C_TEXT}{vram_u_gb:4.1f}/{vram_t_gb:4.1f}GB{RESET} │ "
-                f"{C_AMBER}🔥 {pwr_txt:<11}{RESET} │ {C_SUB}Clk: {clk_txt}{RESET}"
+                f"     {C_SUB}{arch_info[:34]:<34}{RESET} │ "
+                f"{vram_section} │ "
+                f"{C_AMBER}🔥 {pwr_txt:<10}{RESET} │ {C_SUB}Clk: {clk_txt}{RESET}"
             )
             box_lines.append(line1)
             box_lines.append(line2)
@@ -661,9 +738,10 @@ class BpytopTuiApp:
     def _build_hardware_specs_box(self, width: int, max_rows: int) -> List[str]:
         title = f"{C_KEY}⁴{BOLD}{C_AMBER}deep hardware & smbios specifications{RESET} {C_SUB}(Press {C_KEY}4{C_SUB} or {C_KEY}5{C_SUB} for GPU Processes){RESET}"
         s = self.hw_specs
+        vid_str = f" • VID {s.cpu.voltage_v:.2f}V" if s.cpu.voltage_v is not None else ""
         lines = [
-            f"{C_CYAN}{BOLD}CPU:{RESET} {s.cpu.name} ({s.cpu.identifier}) • Socket {s.cpu.socket} • "
-            f"Base {s.cpu.base_clock_mhz}MHz / Boost {s.cpu.boost_clock_mhz}MHz / BCLK {s.cpu.ext_clock_mhz}MHz • VID {s.cpu.voltage_v:.2f}V",
+            f"{C_CYAN}{BOLD}CPU:{RESET} {s.cpu.name} ({s.cpu.identifier or s.cpu.vendor}) • Socket {s.cpu.socket or 'N/A'} • "
+            f"Base {s.cpu.base_clock_mhz}MHz / Boost {s.cpu.boost_clock_mhz}MHz / BCLK {s.cpu.ext_clock_mhz}MHz{vid_str}",
             f"{C_CYAN}{BOLD}CACHE & ISA:{RESET} L1: {s.cpu.l1_cache_kb}KB │ L2: {s.cpu.l2_cache_kb // 1024}MB │ L3: {s.cpu.l3_cache_kb // 1024}MB │ "
             f"Virt: {s.cpu.virtualization} │ {', '.join(s.cpu.features)}",
             f"{C_PURPLE}{BOLD}RAM:{RESET} {s.ram.total_installed_gb:.0f}GB {s.ram.mem_type} {s.ram.form_factor} • {C_GREEN}{BOLD}{s.ram.channel_mode}{RESET} • "
@@ -680,6 +758,15 @@ class BpytopTuiApp:
             if len(dimm_strs) > 2:
                 lines.append(f"       " + " │ ".join(dimm_strs[2:4]))
 
+        # Local GPUs Deep Specs summary
+        if self.devices:
+            gpu_strs = [
+                f"GPU{d.index} {d.name} ({d.architecture or d.vendor}, {d.vram_total_mb / 1024.0:.1f}GB, "
+                f"PCIe Gen{d.pcie_gen or '?'}x{d.pcie_width or '?'}, VBIOS {d.vbios_version or 'N/A'})"
+                for d in self.devices
+            ]
+            lines.append(f"{C_RED}{BOLD}GPUs:{RESET} " + " │ ".join(gpu_strs[:2]))
+
         # Motherboard & Slots
         slot_strs = [
             f"{sl.designation}({sl.bus_width}):{C_GREEN if 'In Use' in sl.status else C_MUTED}{sl.status}{RESET}"
@@ -693,11 +780,30 @@ class BpytopTuiApp:
             lines.append(f"{C_GREEN}{BOLD}PCIe/M.2:{RESET} " + " │ ".join(slot_strs))
 
         # Storage Drives
-        drv_strs = [f"{d.model} ({d.bus_type} {d.capacity_gb:.0f}GB FW:{d.firmware})" for d in s.storage_drives]
+        drv_strs = [f"{d.model} ({d.bus_type} {d.capacity_gb:.0f}GB FW:{d.firmware or '--'})" for d in s.storage_drives]
         if drv_strs:
             lines.append(f"{C_BLUE}{BOLD}DRIVES:{RESET} " + " │ ".join(drv_strs))
 
         return draw_box(title, lines[: max(3, max_rows - 2)], width, C_BORDER)
+
+    def run_once(self):
+        """Polls local hardware once and prints a single rendered TUI frame to stdout."""
+        sys.stdout.reconfigure(encoding="utf-8")
+        self._enable_windows_vt_mode()
+        self._poll_local()
+        term_size = shutil.get_terminal_size((136, 38))
+        cols = max(136, term_size.columns)
+        rows = max(38, term_size.lines)
+        frame = self._render_frame(cols, rows)
+        # Strip CURSOR_HOME for clean stdout dump
+        if frame.startswith(CURSOR_HOME):
+            frame = frame[len(CURSOR_HOME):]
+        sys.stdout.write(frame + RESET + "\n")
+        sys.stdout.flush()
+        self.nvml.shutdown()
+        self.adl.shutdown()
+        self.dxgi.shutdown()
+        self.drm.shutdown()
 
     def run(self):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -753,12 +859,32 @@ class BpytopTuiApp:
             self.nvml.shutdown()
             self.adl.shutdown()
             self.dxgi.shutdown()
+            self.drm.shutdown()
 
 
 def run_tui():
+    if "--help" in sys.argv or "-h" in sys.argv:
+        from core.updater import print_help
+        print_help("gpu-sentry-tui")
+        return
+
+    if "--version" in sys.argv or "-v" in sys.argv:
+        from core.updater import get_version_string
+        print(get_version_string())
+        return
+
+    if "--update" in sys.argv or "-u" in sys.argv or "update" in sys.argv[1:]:
+        from core.updater import run_self_update
+        sys.exit(run_self_update())
+
     interval = 1000
     for idx, arg in enumerate(sys.argv):
         if arg == "--interval" and idx + 1 < len(sys.argv) and sys.argv[idx + 1].isdigit():
             interval = int(sys.argv[idx + 1])
     app = BpytopTuiApp(interval_ms=interval)
-    app.run()
+    if "--specs" in sys.argv:
+        app.bottom_mode = "specs"
+    if "--once" in sys.argv or "--dump" in sys.argv:
+        app.run_once()
+    else:
+        app.run()

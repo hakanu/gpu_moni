@@ -77,6 +77,11 @@ for c in /sys/class/drm/card[0-9]; do
   if [ -n "$slot" ]; then
     (/usr/bin/lspci -s "$slot" 2>/dev/null || /sbin/lspci -s "$slot" 2>/dev/null || true) | head -n 1 | sed 's/^/LSPCI=/'
   fi
+  rev=$(cat "$c/device/revision" 2>/dev/null | sed 's/^0x//i' | tr 'a-f' 'A-F')
+  did=$(grep '^PCI_ID=' "$c/device/uevent" 2>/dev/null | cut -d: -f2 | tr 'a-f' 'A-F')
+  if [ -n "$did" ] && [ -f /usr/share/libdrm/amdgpu.ids ]; then
+    (grep -i "^${did},[[:space:]]*${rev}," /usr/share/libdrm/amdgpu.ids 2>/dev/null || grep -i "^${did}," /usr/share/libdrm/amdgpu.ids 2>/dev/null || true) | head -n 1 | cut -d, -f3- | sed 's/^[[:space:]]*/AMDGPU_NAME=/'
+  fi
   echo "BUSY=$(cat $c/device/gpu_busy_percent 2>/dev/null || echo 0)"
   echo "VRAM_USED=$(cat $c/device/mem_info_vram_used 2>/dev/null || echo 0)"
   echo "VRAM_TOTAL=$(cat $c/device/mem_info_vram_total 2>/dev/null || echo 0)"
@@ -1116,9 +1121,12 @@ class NetworkTelemetryManager(QObject):
                     "Intel" if ("8086" in pci_id or driver in ("i915", "xe")) else "Other"
                 )
 
-                # Extract clean GPU model name from lspci output
+                # Extract clean GPU model name from amdgpu.ids or lspci output
+                amdgpu_name = kv.get("AMDGPU_NAME", "").strip()
                 gpu_name = f"{vendor} Graphics ({os.path.basename(card_path)})"
-                if lspci_line:
+                if amdgpu_name:
+                    gpu_name = amdgpu_name
+                elif lspci_line:
                     # e.g. "0a:00.0 VGA compatible controller: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] (rev c8)"
                     desc = lspci_line.split(": ", 1)[-1]
                     desc = re.sub(r"\s*\(rev [0-9a-fA-F]+\)$", "", desc)

@@ -2,22 +2,22 @@
 # GPU & System Sentry - Linux Launcher
 set -e
 
-# Change directory to script directory
 cd "$(dirname "$0")"
 
-# Check Python 3
+if command -v uv &> /dev/null; then
+    exec uv run python main.py "$@"
+fi
+
 if ! command -v python3 &> /dev/null; then
     echo "[!] Error: python3 is not installed or not in PATH."
     exit 1
 fi
 
-# Detect virtual environment
 if [ -d ".venv" ] && [ -f ".venv/bin/python" ]; then
     PYTHON_EXEC=".venv/bin/python"
 elif [ -n "$VIRTUAL_ENV" ]; then
     PYTHON_EXEC="python"
 else
-    # Prompt / create virtual environment if not present
     if [ ! -d ".venv" ]; then
         echo "[*] Creating virtual environment (.venv)..."
         python3 -m venv .venv

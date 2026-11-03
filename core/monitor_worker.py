@@ -14,6 +14,7 @@ from core.gpu_types import GpuDevice, GpuMetrics, HostMetrics
 from core.nvml_backend import NvmlBackend
 from core.adl_backend import AdlBackend
 from core.dxgi_backend import DxgiBackend
+from core.drm_backend import LinuxDrmBackend
 from core.host_backend import HostBackend
 
 
@@ -34,6 +35,7 @@ class MonitorWorker(QThread):
         self.nvml = NvmlBackend()
         self.adl = AdlBackend()
         self.dxgi = DxgiBackend()
+        self.drm = LinuxDrmBackend(nvml_available=self.nvml.available)
         self.host = HostBackend(adl_backend=self.adl)
 
         self.devices: List[GpuDevice] = []
@@ -56,7 +58,7 @@ class MonitorWorker(QThread):
                         d.vram_total_mb = dx_match["dedicated_vram_mb"]
                 discovered.append(d)
 
-        # 2. AMD Devices
+        # 2. AMD Devices (Windows ADL)
         if self.adl.available:
             amd_devs = self.adl.get_devices()
             for d in amd_devs:
@@ -86,43 +88,12 @@ class MonitorWorker(QThread):
             )
             discovered.append(new_dev)
 
-        # 4. Linux DRM sysfs adapters (AMD / Intel on Linux)
-        if sys.platform.startswith("linux") and os.path.exists("/sys/class/drm"):
-            cards = sorted(glob.glob("/sys/class/drm/card[0-9]"))
-            for card_path in cards:
-                dev_path = os.path.join(card_path, "device")
-                if not os.path.exists(dev_path):
-                    continue
-                vendor_id = ""
-                try:
-                    with open(os.path.join(dev_path, "vendor"), "r") as f:
-                        vendor_id = f.read().strip().lower()
-                except Exception:
-                    pass
-                if "10de" in vendor_id and self.nvml.available:
-                    continue  # Already managed via NVML
-                v_name = "AMD" if "1002" in vendor_id else ("Intel" if "8086" in vendor_id else "Other")
-                dev_id = f"drm_{os.path.basename(card_path)}"
-                if any(d.device_id == dev_id for d in discovered):
-                    continue
-                vram_total_mb = 0.0
-                try:
-                    vram_tot_path = os.path.join(dev_path, "mem_info_vram_total")
-                    if os.path.exists(vram_tot_path):
-                        with open(vram_tot_path, "r") as f:
-                            vram_total_mb = round(int(f.read().strip()) / (1024 * 1024), 1)
-                except Exception:
-                    pass
-                name = f"{v_name} Graphics ({os.path.basename(card_path)})"
-                new_dev = GpuDevice(
-                    device_id=dev_id,
-                    index=len(discovered),
-                    name=name,
-                    vendor=v_name,
-                    vram_total_mb=vram_total_mb,
-                    bus_id=dev_path,
-                )
-                discovered.append(new_dev)
+        # 4. Linux DRM sysfs adapters (AMD amdgpu / radeon & Intel i915 / xe on Ubuntu/Linux)
+        if self.drm.available:
+            drm_devs = self.drm.get_devices(start_index=len(discovered))
+            for d in drm_devs:
+                if not any(existing.device_id == d.device_id for existing in discovered):
+                    discovered.append(d)
 
         self.devices = discovered
 
@@ -141,6 +112,7 @@ class MonitorWorker(QThread):
         self.nvml.shutdown()
         self.adl.shutdown()
         self.dxgi.shutdown()
+        self.drm.shutdown()
 
     def run(self):
         # Emit initial device list
@@ -167,9 +139,9 @@ class MonitorWorker(QThread):
 
                 for dev in self.devices:
                     m = GpuMetrics()
-                    if dev.vendor == "NVIDIA" and self.nvml.available:
+                    if dev.vendor == "NVIDIA" and self.nvml.available and dev.device_id.startswith("nvidia_"):
                         m = self.nvml.sample_metrics(dev.index)
-                    elif dev.vendor == "AMD" and self.adl.available:
+                    elif dev.vendor == "AMD" and self.adl.available and dev.device_id.startswith("amd_"):
                         m = self.adl.sample_metrics(dev.index)
                         # Set VRAM from PDH and DXGI
                         if dev.luid in pdh_mems:
@@ -177,41 +149,10 @@ class MonitorWorker(QThread):
                         m.vram_total_mb = dev.vram_total_mb
                         if m.vram_total_mb > 0:
                             m.vram_free_mb = max(0.0, m.vram_total_mb - m.vram_used_mb)
-                    elif dev.device_id.startswith("drm_") and dev.bus_id and os.path.exists(dev.bus_id):
-                        # Sample Linux DRM sysfs
-                        try:
-                            busy_path = os.path.join(dev.bus_id, "gpu_busy_percent")
-                            if os.path.exists(busy_path):
-                                with open(busy_path, "r") as f:
-                                    m.gpu_util_percent = float(f.read().strip())
-                        except Exception:
-                            pass
-                        try:
-                            hwmon_dirs = glob.glob(os.path.join(dev.bus_id, "hwmon", "hwmon*"))
-                            for h_dir in hwmon_dirs:
-                                temp_path = os.path.join(h_dir, "temp1_input")
-                                if os.path.exists(temp_path):
-                                    with open(temp_path, "r") as f:
-                                        m.temp_core_c = round(float(f.read().strip()) / 1000.0, 1)
-                                        break
-                                pwr_path = os.path.join(h_dir, "power1_average")
-                                if os.path.exists(pwr_path):
-                                    with open(pwr_path, "r") as f:
-                                        m.power_draw_w = round(float(f.read().strip()) / 1000000.0, 1)
-                        except Exception:
-                            pass
-                        try:
-                            vram_u_path = os.path.join(dev.bus_id, "mem_info_vram_used")
-                            if os.path.exists(vram_u_path):
-                                with open(vram_u_path, "r") as f:
-                                    m.vram_used_mb = round(int(f.read().strip()) / (1024 * 1024), 1)
-                            m.vram_total_mb = dev.vram_total_mb
-                            if m.vram_total_mb > 0:
-                                m.vram_free_mb = max(0.0, m.vram_total_mb - m.vram_used_mb)
-                        except Exception:
-                            pass
+                    elif dev.device_id.startswith("drm_") and self.drm.available:
+                        m = self.drm.sample_metrics(dev.device_id)
                     else:
-                        # Fallback for generic/Intel
+                        # Fallback for generic/Intel DXGI
                         if dev.luid in pdh_mems:
                             m.vram_used_mb = pdh_mems[dev.luid]
                         m.vram_total_mb = dev.vram_total_mb

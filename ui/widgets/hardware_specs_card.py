@@ -554,7 +554,8 @@ class HardwareSpecsCard(QFrame):
             0, 1
         )
         clk_str = f"Base: {cpu.base_clock_mhz} MHz • Boost: {cpu.boost_clock_mhz} MHz" if cpu.base_clock_mhz else "Dynamic Boost"
-        bclk_str = f"Bus / BCLK: {cpu.ext_clock_mhz} MHz • Core VID: {cpu.voltage_v:.2f} V" if cpu.ext_clock_mhz else ""
+        vid_part = f" • Core VID: {cpu.voltage_v:.2f} V" if cpu.voltage_v is not None else ""
+        bclk_str = f"Bus / BCLK: {cpu.ext_clock_mhz} MHz{vid_part}" if cpu.ext_clock_mhz else ""
         grid.addWidget(
             self._create_kv_cell("Clock Speeds & BCLK", clk_str, bclk_str, "#ffab00"),
             0, 2
@@ -739,7 +740,7 @@ class HardwareSpecsCard(QFrame):
             f"- **Identifier**: {s.cpu.identifier}",
             f"- **Socket**: {s.cpu.socket}",
             f"- **Topology**: {s.cpu.cores_physical} Physical Cores / {s.cpu.cores_logical} Logical Threads",
-            f"- **Clocks**: Base {s.cpu.base_clock_mhz} MHz | Max Boost {s.cpu.boost_clock_mhz} MHz | BCLK {s.cpu.ext_clock_mhz} MHz | VID {s.cpu.voltage_v:.2f} V",
+            f"- **Clocks**: Base {s.cpu.base_clock_mhz} MHz | Max Boost {s.cpu.boost_clock_mhz} MHz | BCLK {s.cpu.ext_clock_mhz} MHz | VID {f'{s.cpu.voltage_v:.2f} V' if s.cpu.voltage_v is not None else 'Auto'}",
             f"- **Cache**: L1 {s.cpu.l1_cache_kb} KB | L2 {s.cpu.l2_cache_kb} KB | L3 {s.cpu.l3_cache_kb} KB",
             f"- **Virtualization**: {s.cpu.virtualization}",
             f"- **Instruction Sets**: {', '.join(s.cpu.features)}",

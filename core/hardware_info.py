@@ -789,6 +789,10 @@ class HardwareInfoCollector:
         return drives
 
     @classmethod
+    def collect_os_specs(cls) -> OsSpecs:
+        return cls._collect_os_info()
+
+    @classmethod
     def _collect_linux_info(cls, specs: SystemHardwareSpecs):
         # 1. Motherboard & BIOS via /sys/class/dmi/id
         dmi_base = "/sys/class/dmi/id"
@@ -797,6 +801,7 @@ class HardwareInfoCollector:
                 ("board_vendor", "manufacturer"),
                 ("board_name", "product"),
                 ("board_version", "version"),
+                ("board_serial", "serial_number"),
                 ("bios_vendor", "bios_vendor"),
                 ("bios_version", "bios_version"),
                 ("bios_date", "bios_date"),
@@ -806,12 +811,29 @@ class HardwareInfoCollector:
                     if os.path.isfile(fpath) and os.access(fpath, os.R_OK):
                         with open(fpath, "r", encoding="utf-8") as f:
                             val = f.read().strip()
-                            if val:
+                            if val and val.lower() not in ("default string", "system serial number", "none", "to be filled by o.e.m."):
                                 setattr(specs.motherboard, attr, val)
                 except Exception:
                     pass
 
-        # 2. CPU via /proc/cpuinfo
+        specs.motherboard.boot_mode = "UEFI" if os.path.isdir("/sys/firmware/efi") else "Legacy BIOS"
+        if os.path.isdir("/sys/firmware/efi/efivars"):
+            try:
+                import glob
+                sb_files = glob.glob("/sys/firmware/efi/efivars/SecureBoot-*")
+                if sb_files and os.access(sb_files[0], os.R_OK):
+                    with open(sb_files[0], "rb") as f:
+                        raw_sb = f.read()
+                        if len(raw_sb) >= 5:
+                            specs.motherboard.secure_boot = "Enabled" if raw_sb[-1] == 1 else "Disabled"
+            except Exception:
+                pass
+
+        # 2. CPU via /proc/cpuinfo + /sys/devices/system/cpu
+        cpu_fam = ""
+        cpu_mod = ""
+        cpu_step = ""
+        cpu_mhz_list: List[float] = []
         try:
             if os.path.isfile("/proc/cpuinfo"):
                 with open("/proc/cpuinfo", "r", encoding="utf-8") as f:
@@ -820,13 +842,26 @@ class HardwareInfoCollector:
                             continue
                         k, v = [x.strip() for x in line.split(":", 1)]
                         if k == "model name" and not specs.cpu.name:
-                            specs.cpu.name = v
+                            specs.cpu.name = " ".join(v.split())
                         elif k == "vendor_id" and not specs.cpu.vendor:
                             specs.cpu.vendor = v
+                        elif k == "cpu family" and not cpu_fam:
+                            cpu_fam = v
+                        elif k == "model" and not cpu_mod:
+                            cpu_mod = v
+                        elif k == "stepping" and not cpu_step:
+                            cpu_step = v
+                        elif k == "cpu MHz":
+                            try:
+                                cpu_mhz_list.append(float(v))
+                            except Exception:
+                                pass
                         elif k == "flags" and not specs.cpu.features:
                             flags = set(v.lower().split())
                             for flag_key, label in [
                                 ("sse2", "SSE2"),
+                                ("pni", "SSE3"),
+                                ("ssse3", "SSSE3"),
                                 ("sse4_1", "SSE4.1"),
                                 ("sse4_2", "SSE4.2"),
                                 ("avx", "AVX"),
@@ -840,27 +875,210 @@ class HardwareInfoCollector:
         except Exception:
             pass
 
-        # 3. Linux Block Devices
+        if cpu_fam and cpu_mod:
+            specs.cpu.identifier = f"Family {cpu_fam} Model {cpu_mod}" + (f" Stepping {cpu_step}" if cpu_step else "")
+
+        # CPU Clocks from cpufreq or model string
+        try:
+            max_f_path = "/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"
+            base_f_path = "/sys/devices/system/cpu/cpu0/cpufreq/base_frequency"
+            if os.path.isfile(max_f_path):
+                with open(max_f_path, "r") as f:
+                    specs.cpu.boost_clock_mhz = int(round(int(f.read().strip()) / 1000.0))
+            if os.path.isfile(base_f_path):
+                with open(base_f_path, "r") as f:
+                    specs.cpu.base_clock_mhz = int(round(int(f.read().strip()) / 1000.0))
+            if not specs.cpu.base_clock_mhz and specs.cpu.name:
+                m_ghz = re.search(r"@\s*(\d+\.\d+)\s*GHz", specs.cpu.name, re.IGNORECASE)
+                if m_ghz:
+                    specs.cpu.base_clock_mhz = int(round(float(m_ghz.group(1)) * 1000))
+            if not specs.cpu.base_clock_mhz and cpu_mhz_list:
+                specs.cpu.base_clock_mhz = int(round(max(cpu_mhz_list)))
+            if not specs.cpu.boost_clock_mhz and specs.cpu.base_clock_mhz:
+                specs.cpu.boost_clock_mhz = specs.cpu.base_clock_mhz
+        except Exception:
+            pass
+
+        # CPU Cache Hierarchy via /sys/devices/system/cpu/cpu*/cache/index*
+        try:
+            import glob
+            seen_caches = {1: set(), 2: set(), 3: set()}
+            totals_kb = {1: 0, 2: 0, 3: 0}
+            for idx_dir in sorted(glob.glob("/sys/devices/system/cpu/cpu[0-9]*/cache/index[0-9]*")):
+                try:
+                    with open(os.path.join(idx_dir, "level"), "r") as f:
+                        lvl = int(f.read().strip())
+                    if lvl not in (1, 2, 3):
+                        continue
+                    with open(os.path.join(idx_dir, "type"), "r") as f:
+                        ctype = f.read().strip()
+                    with open(os.path.join(idx_dir, "shared_cpu_list"), "r") as f:
+                        shared = f.read().strip()
+                    with open(os.path.join(idx_dir, "size"), "r") as f:
+                        sz_str = f.read().strip().upper()
+                    cache_key = (lvl, ctype, shared)
+                    if cache_key in seen_caches[lvl]:
+                        continue
+                    seen_caches[lvl].add(cache_key)
+                    if sz_str.endswith("K"):
+                        sz_kb = int(sz_str[:-1])
+                    elif sz_str.endswith("M"):
+                        sz_kb = int(sz_str[:-1]) * 1024
+                    else:
+                        sz_kb = int(sz_str) // 1024
+                    totals_kb[lvl] += sz_kb
+                except Exception:
+                    continue
+            if totals_kb[1] > 0:
+                specs.cpu.l1_cache_kb = totals_kb[1]
+            if totals_kb[2] > 0:
+                specs.cpu.l2_cache_kb = totals_kb[2]
+            if totals_kb[3] > 0:
+                specs.cpu.l3_cache_kb = totals_kb[3]
+        except Exception:
+            pass
+
+        # 3. RAM & Physical DIMM Slots via /run/udev/data/+dmi:id (no root required on systemd/Ubuntu)
+        udev_dmi_path = "/run/udev/data/+dmi:id"
+        if os.path.isfile(udev_dmi_path) and os.access(udev_dmi_path, os.R_OK):
+            try:
+                dmi_props: dict = {}
+                with open(udev_dmi_path, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("E:") and "=" in line:
+                            k, v = line[2:].split("=", 1)
+                            dmi_props[k.strip()] = v.strip()
+
+                max_cap_b = dmi_props.get("MEMORY_ARRAY_MAX_CAPACITY", "")
+                if max_cap_b.isdigit() and int(max_cap_b) > 0:
+                    specs.ram.max_board_capacity_gb = round(int(max_cap_b) / (1024 ** 3), 0)
+
+                # Group MEMORY_DEVICE_<idx>_<field>
+                dev_indices = sorted(
+                    {
+                        int(m.group(1))
+                        for k in dmi_props
+                        for m in [re.match(r"^MEMORY_DEVICE_(\d+)_", k)]
+                        if m
+                    }
+                )
+                for d_idx in dev_indices:
+                    prefix = f"MEMORY_DEVICE_{d_idx}_"
+                    sz_str = dmi_props.get(prefix + "SIZE") or dmi_props.get(prefix + "VOLATILE_SIZE") or "0"
+                    sz_bytes = int(sz_str) if sz_str.isdigit() else 0
+                    populated = sz_bytes > 0
+                    cap_gb = round(sz_bytes / (1024 ** 3), 1) if populated else 0.0
+                    loc = dmi_props.get(prefix + "LOCATOR", f"Slot {d_idx + 1}")
+                    bank = dmi_props.get(prefix + "BANK_LOCATOR", "")
+                    mtype = dmi_props.get(prefix + "TYPE", "DDR")
+                    ff = dmi_props.get(prefix + "FORM_FACTOR", "DIMM")
+                    jedec_s = dmi_props.get(prefix + "SPEED_MTS", "0")
+                    cfg_s = dmi_props.get(prefix + "CONFIGURED_SPEED_MTS", jedec_s)
+                    jedec_mts = int(jedec_s) if jedec_s.isdigit() else 0
+                    cfg_mts = int(cfg_s) if cfg_s.isdigit() else jedec_mts
+                    mfg = dmi_props.get(prefix + "MANUFACTURER", "")
+                    pn = dmi_props.get(prefix + "PART_NUMBER", "")
+                    sn = dmi_props.get(prefix + "SERIAL_NUMBER", "")
+                    rank_s = dmi_props.get(prefix + "RANK", "0")
+                    ranks = int(rank_s) if rank_s.isdigit() else 0
+                    dw_s = dmi_props.get(prefix + "DATA_WIDTH", "64")
+                    tw_s = dmi_props.get(prefix + "TOTAL_WIDTH", "64")
+                    volt_s = dmi_props.get(prefix + "CONFIGURED_VOLTAGE", "0")
+                    volt_raw = float(volt_s) if volt_s.replace(".", "", 1).isdigit() else 0.0
+                    if volt_raw > 100:
+                        volt_v = round(volt_raw / 1000.0, 2)
+                    elif volt_raw in (1.0, 2.0):
+                        # udev integer truncation fallback based on DDR generation
+                        volt_v = 1.10 if "DDR5" in mtype else (1.20 if "DDR4" in mtype else (1.50 if "DDR3" in mtype else volt_raw))
+                    else:
+                        volt_v = round(volt_raw, 2)
+
+                    specs.ram.modules.append(
+                        RamSlotInfo(
+                            slot_label=loc,
+                            bank_label=bank,
+                            populated=populated,
+                            capacity_gb=cap_gb,
+                            mem_type=mtype,
+                            form_factor=ff,
+                            configured_speed_mts=cfg_mts if populated else 0,
+                            dram_freq_mhz=(cfg_mts // 2) if populated else 0,
+                            jedec_speed_mts=jedec_mts if populated else 0,
+                            xmp_expo_spec=decode_ram_part_number_spec(pn) if populated else "",
+                            ranks=ranks if populated else 0,
+                            voltage_v=volt_v if populated else 0.0,
+                            data_width_bits=int(dw_s) if dw_s.isdigit() else 64,
+                            total_width_bits=int(tw_s) if tw_s.isdigit() else 64,
+                            manufacturer=mfg if populated and mfg.lower() not in ("unknown", "not specified") else "",
+                            part_number=pn if populated and pn.lower() not in ("unknown", "not specified") else "",
+                            serial_number=sn if populated and sn not in ("00000000", "Unknown", "Not Specified") else "",
+                        )
+                    )
+            except Exception:
+                pass
+
+        # Infer CPU Socket on Linux if not populated
+        if not specs.cpu.socket:
+            cname_u = specs.cpu.name.upper()
+            ram_types = {m.mem_type for m in specs.ram.modules if m.populated}
+            if "AMD" in specs.cpu.vendor.upper() or "RYZEN" in cname_u or "EPYC" in cname_u:
+                if any(s in cname_u for s in ("HS", "HX", "U ", "PRO 7", "AI 9", "AI 7")) or any(
+                    m.form_factor == "SODIMM" for m in specs.ram.modules if m.populated
+                ):
+                    specs.cpu.socket = "FP7 / FP8 (Mobile APU)"
+                elif "DDR5" in ram_types or any(s in cname_u for s in ("7950", "7900", "7800", "7700", "7600", "8700", "8600", "9950", "9900", "9800", "9700", "9600")):
+                    specs.cpu.socket = "AM5"
+                else:
+                    specs.cpu.socket = "AM4"
+            elif "INTEL" in specs.cpu.vendor.upper():
+                if "XEON" in cname_u and "V3" in cname_u:
+                    specs.cpu.socket = "LGA1150"
+                elif "DDR5" in ram_types:
+                    specs.cpu.socket = "LGA1700 / LGA1851"
+                else:
+                    specs.cpu.socket = "LGA"
+
+        # 4. Linux Block Devices (with firmware & serial)
         try:
             sys_block = "/sys/block"
             if os.path.isdir(sys_block):
                 idx = 0
                 for dev_name in sorted(os.listdir(sys_block)):
-                    if dev_name.startswith(("loop", "ram", "dm-", "zram")):
+                    if dev_name.startswith(("loop", "ram", "dm-", "zram", "sr")):
                         continue
-                    model_file = os.path.join(sys_block, dev_name, "device", "model")
+                    dev_dir = os.path.join(sys_block, dev_name, "device")
+                    model_file = os.path.join(dev_dir, "model")
                     size_file = os.path.join(sys_block, dev_name, "size")
                     if os.path.isfile(model_file):
-                        with open(model_file, "r", encoding="utf-8") as f:
+                        with open(model_file, "r", encoding="utf-8", errors="ignore") as f:
                             model = f.read().strip()
                         size_gb = 0.0
                         if os.path.isfile(size_file):
-                            with open(size_file, "r", encoding="utf-8") as f:
+                            with open(size_file, "r", encoding="utf-8", errors="ignore") as f:
                                 sectors = int(f.read().strip())
                                 size_gb = round((sectors * 512) / (1024 ** 3), 1)
+                        fw = ""
+                        for fw_name in ("firmware_rev", "rev"):
+                            fw_path = os.path.join(dev_dir, fw_name)
+                            if os.path.isfile(fw_path) and os.access(fw_path, os.R_OK):
+                                with open(fw_path, "r", encoding="utf-8", errors="ignore") as f:
+                                    fw = f.read().strip()
+                                if fw:
+                                    break
+                        sn = ""
+                        sn_path = os.path.join(dev_dir, "serial")
+                        if os.path.isfile(sn_path) and os.access(sn_path, os.R_OK):
+                            with open(sn_path, "r", encoding="utf-8", errors="ignore") as f:
+                                sn = f.read().strip()
                         bus = "NVMe" if dev_name.startswith("nvme") else "SATA/Block"
                         drives_info = StorageDriveInfo(
-                            index=idx, model=model, bus_type=bus, capacity_gb=size_gb
+                            index=idx,
+                            model=model,
+                            bus_type=bus,
+                            capacity_gb=size_gb,
+                            firmware=fw,
+                            serial_number=sn,
                         )
                         specs.storage_drives.append(drives_info)
                         idx += 1
@@ -891,11 +1109,15 @@ class HardwareInfoCollector:
             # Determine Channel Mode from Bank/Device Locators
             channels = set()
             for m in populated:
-                combined = f"{m.bank_label} {m.slot_label}".upper()
-                ch_match = re.search(r"CHANNEL\s*([A-H0-7])|CH([A-H0-7])|BANK\s*(\d+)", combined)
+                combined = f"{m.slot_label} {m.bank_label}".upper()
+                ch_match = re.search(r"CHANNEL\s*([A-H0-7])|CH([A-H0-7])|DIMM[_\s-]*([A-H])[0-9]", combined)
                 if ch_match:
                     ch_id = ch_match.group(1) or ch_match.group(2) or ch_match.group(3)
                     channels.add(ch_id)
+
+            if not channels and ram.slots_used == 2:
+                # 2 DIMMs in BANK 0 / BANK 1 is standard Dual Channel
+                channels = {"A", "B"}
 
             num_ch = len(channels)
             if num_ch >= 4:

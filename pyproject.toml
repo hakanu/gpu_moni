@@ -4,26 +4,29 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gpu-sentry"
-version = "1.0.0"
-description = "High-Performance Real-Time Multi-GPU & CPU Telemetry Dashboard and Taskbar Widget"
+version = "1.1.0"
+description = "High-Performance Real-Time Multi-GPU & CPU Telemetry Dashboard, TUI, and Taskbar Widget"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
     { name = "Antigravity Team" }
 ]
-keywords = ["gpu", "nvidia", "amd", "telemetry", "monitor", "taskbar", "hardware", "cpu", "pyqt6"]
+keywords = ["gpu", "nvidia", "amd", "amdgpu", "radeon", "telemetry", "monitor", "tui", "bpytop", "taskbar", "hardware", "cpu", "pyqt6"]
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Environment :: Console",
     "Environment :: Win32 (MS Windows)",
     "Environment :: X11 Applications :: Qt",
     "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: System Administrators",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: System :: Monitoring",
 ]
 dependencies = [
@@ -47,7 +50,7 @@ gpu-sentry-tui = "ui.tui_dashboard:run_tui"
 py-modules = ["main"]
 
 [tool.setuptools.packages.find]
-include = ["core*", "ui*"]
+include = ["core*", "ui*", "assets*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.ico", "*.png"]

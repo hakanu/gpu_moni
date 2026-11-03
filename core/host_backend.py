@@ -4,7 +4,9 @@ Collects processor load, per-core utilization, clock frequency,
 thermals, and memory usage with microsecond overhead.
 """
 
+import glob
 import os
+import time
 import psutil
 try:
     import winreg
@@ -20,10 +22,13 @@ class HostBackend:
         self.cpu_name = self._get_cpu_name()
         self.cores_phys = psutil.cpu_count(logical=False) or 0
         self.cores_log = psutil.cpu_count(logical=True) or 0
+        self._last_rapl_uj: Optional[int] = None
+        self._last_rapl_ts: float = 0.0
 
         # Prime psutil CPU percent calculations
         psutil.cpu_percent(interval=None)
         psutil.cpu_percent(interval=None, percpu=True)
+        self._sample_linux_cpu_power()
 
     def _get_cpu_name(self) -> str:
         if winreg:
@@ -48,6 +53,44 @@ class HostBackend:
 
         import platform
         return platform.processor() or "Central Processor"
+
+    def _sample_linux_cpu_power(self) -> Optional[float]:
+        # 1. Check hwmon CPU power sensors (zenpower, zenergy, amd_energy, k10temp)
+        try:
+            for hw in glob.glob("/sys/class/hwmon/hwmon*"):
+                name_f = os.path.join(hw, "name")
+                if not os.path.isfile(name_f):
+                    continue
+                with open(name_f, "r", encoding="utf-8", errors="ignore") as f:
+                    hname = f.read().strip().lower()
+                if hname in ("zenpower", "zenergy", "amd_energy", "k10temp", "coretemp"):
+                    for pf in ("power1_input", "power1_average"):
+                        p_path = os.path.join(hw, pf)
+                        if os.path.isfile(p_path) and os.access(p_path, os.R_OK):
+                            with open(p_path, "r") as f:
+                                uw = float(f.read().strip())
+                                if uw > 0:
+                                    return round(uw / 1_000_000.0, 1)
+        except Exception:
+            pass
+
+        # 2. Check powercap intel-rapl (works on both AMD Ryzen and Intel on Linux when readable)
+        rapl_path = "/sys/class/powercap/intel-rapl:0/energy_uj"
+        if os.path.isfile(rapl_path) and os.access(rapl_path, os.R_OK):
+            try:
+                now = time.perf_counter()
+                with open(rapl_path, "r") as f:
+                    uj = int(f.read().strip())
+                prev_uj, prev_ts = self._last_rapl_uj, self._last_rapl_ts
+                self._last_rapl_uj = uj
+                self._last_rapl_ts = now
+                if prev_uj is not None and (now - prev_ts) >= 0.1 and uj >= prev_uj:
+                    watts = (uj - prev_uj) / ((now - prev_ts) * 1_000_000.0)
+                    if 0.5 <= watts <= 500.0:
+                        return round(watts, 1)
+            except Exception:
+                pass
+        return None
 
     def sample_metrics(self, include_top_processes: bool = False) -> HostMetrics:
         metrics = HostMetrics()
@@ -99,14 +142,17 @@ class HostBackend:
                 if temps:
                     for s_name in ["k10temp", "coretemp", "cpu_thermal", "zenpower", "acpitz", "cpu-thermal"]:
                         if s_name in temps and temps[s_name]:
-                            for entry in temps[s_name]:
-                                if entry.current and entry.current > 0:
-                                    temp_core = float(entry.current)
-                                    break
-                            if temp_core > 0:
+                            valid_temps = [float(e.current) for e in temps[s_name] if e.current and e.current > 0]
+                            if valid_temps:
+                                temp_core = valid_temps[0]
+                                if len(valid_temps) > 1 and max(valid_temps) > temp_core:
+                                    temp_hotspot = max(valid_temps)
                                 break
             except Exception:
                 pass
+
+        if power_w is None and os.name != "nt":
+            power_w = self._sample_linux_cpu_power()
 
         metrics.cpu = CpuMetrics(
             name=self.cpu_name,
