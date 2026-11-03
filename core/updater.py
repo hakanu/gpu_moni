@@ -57,11 +57,13 @@ Install & Update with uv:
 def run_self_update() -> int:
     """
     Updates gpu-sentry from its canonical GitHub repository using `uv`.
+    Automatically recovers if the existing uv tool environment is corrupted.
     """
+    import os
     uv_bin = shutil.which("uv")
     if not uv_bin:
         print("[ERROR] `uv` was not found in PATH. Install uv from https://docs.astral.sh/uv/")
-        print(f"        Then run: uv tool install --upgrade --reinstall {UV_GIT_SPEC}")
+        print(f"        Then run: uv tool install --reinstall --force {UV_GIT_SPEC}")
         return 1
 
     print(f"[GPU Sentry] Updating from {UV_GIT_SPEC} via uv...")
@@ -71,8 +73,20 @@ def run_self_update() -> int:
         if proc.returncode == 0:
             print(f"[OK] GPU Sentry successfully updated from {GIT_REPO_URL}!")
             return 0
-        # Fallback to `uv tool upgrade gpu-sentry`
-        proc2 = subprocess.run([uv_bin, "tool", "upgrade", "gpu-sentry"])
+
+        # If existing uv tool environment is broken (e.g. missing Scripts/python.exe on Windows),
+        # uninstall/remove the broken tool dir and retry a clean install.
+        print("[GPU Sentry] Attempting clean reinstall of uv tool environment...")
+        subprocess.run([uv_bin, "tool", "uninstall", "gpu-sentry"], capture_output=True)
+        if sys.platform == "win32":
+            appdata = os.environ.get("APPDATA", "")
+            if appdata:
+                broken_dir = os.path.join(appdata, "uv", "tools", "gpu-sentry")
+                if os.path.isdir(broken_dir):
+                    shutil.rmtree(broken_dir, ignore_errors=True)
+        proc2 = subprocess.run([uv_bin, "tool", "install", "--reinstall", "--force", UV_GIT_SPEC])
+        if proc2.returncode == 0:
+            print(f"[OK] GPU Sentry cleanly reinstalled from {GIT_REPO_URL}!")
         return proc2.returncode
     except Exception as e:
         print(f"[ERROR] Self-update failed: {e}")

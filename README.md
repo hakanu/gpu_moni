@@ -74,9 +74,25 @@ GPU Sentry is packaged as a standard PEP 621 tool with entry points (`gpu-sentry
 ### 1. Install directly from GitHub with `uv`
 
 ```bash
-# Install the latest version directly from the Git repository
-uv tool install git+https://github.com/hakanu/gpu_moni.git
+# Install (or overwrite) the latest version directly from the Git repository
+uv tool install --reinstall --force git+https://github.com/hakanu/gpu_moni.git
 ```
+
+> [!TIP]
+> **Windows Troubleshooting (`Invalid environment at ...\uv\tools\gpu-sentry`)**:
+> If a previous `uv` installation on Windows was interrupted while `gpu-sentry.exe` was running (leaving a partial folder without `Scripts\python.exe`), remove the stale folder and reinstall:
+> ```powershell
+> # PowerShell
+> taskkill /F /IM gpu-sentry.exe 2>$null
+> Remove-Item -Recurse -Force "$env:APPDATA\uv\tools\gpu-sentry" -ErrorAction SilentlyContinue
+> uv tool install --reinstall --force git+https://github.com/hakanu/gpu_moni.git
+> ```
+> Or in **Command Prompt (`cmd.exe`)**:
+> ```cmd
+> taskkill /F /IM gpu-sentry.exe
+> rmdir /s /q "%APPDATA%\uv\tools\gpu-sentry"
+> uv tool install --reinstall --force git+https://github.com/hakanu/gpu_moni.git
+> ```
 
 Or install from a local clone:
 ```bash
