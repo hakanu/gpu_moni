@@ -400,10 +400,8 @@ class BpytopTuiApp:
             self.bottom_mode = "specs" if self.bottom_mode == "procs" else "procs"
         elif k == "5":
             self.bottom_mode = "procs"
-        elif k == "s":
-            self.net_manager.request_lan_scan()
-            if self.net_manager.tailscale_enabled:
-                self.net_manager.request_tailnet_scan(force_reprobe=True)
+        elif k in ("s", "r"):
+            self.net_manager.rescan_network()
         elif k == "t":
             self.net_manager.set_tailscale_enabled(not self.net_manager.tailscale_enabled)
         elif k in ("+", "="):
@@ -431,7 +429,7 @@ class BpytopTuiApp:
         k3 = f"{C_KEY}³{C_PURPLE if self.show_net else C_MUTED}tailnet({online_net_gpus}){RESET}"
         k4 = f"{C_KEY}⁴{C_AMBER if self.bottom_mode == 'specs' else C_TEXT}{'specs' if self.bottom_mode == 'specs' else 'procs'}{RESET}"
         kt = f"{C_KEY}t{C_GREEN if self.net_manager.tailscale_enabled else C_MUTED}s:{'on' if self.net_manager.tailscale_enabled else 'off'}{RESET}"
-        ks = f"{C_KEY}s{C_SUB}can{RESET}"
+        kr = f"{C_KEY}r{C_SUB}escan{RESET}"
         kq = f"{C_KEY}q{C_SUB}uit{RESET}"
 
         hdr_left = (
@@ -439,7 +437,7 @@ class BpytopTuiApp:
             f"{status_dot} {C_SUB}{self.interval_ms}ms ({self.poll_latency_ms}ms){RESET} │ "
             f"{C_AMBER}🔥 {total_pwr:.0f}W{RESET} │ {C_TEXT}🌡 Peak {peak_temp:.0f}°C{RESET}"
         )
-        hdr_right = f"{k1} {k2} {k3} {k4} {kt} {ks} {C_KEY}+/-{RESET} {kq} │ {BOLD}{C_TEXT}{now_str}{RESET}"
+        hdr_right = f"{k1} {k2} {k3} {k4} {kt} {kr} {C_KEY}+/-{RESET} {kq} │ {BOLD}{C_TEXT}{now_str}{RESET}"
         gap = max(1, width - visible_len(hdr_left) - visible_len(hdr_right) - 2)
         lines.append(" " + hdr_left + (" " * gap) + hdr_right)
 

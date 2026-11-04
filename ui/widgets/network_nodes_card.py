@@ -104,9 +104,9 @@ class NetworkNodesCard(QFrame):
         self.btn_pin_cards.clicked.connect(lambda c: self.net_manager.set_pin_remote_cards(c))
         header_layout.addWidget(self.btn_pin_cards)
 
-        # Scan Tailscale Tailnet button
-        self.btn_scan_tailnet = QPushButton("🦊 Scan Tailnet")
-        self.btn_scan_tailnet.setToolTip("Scan all online machines in your Tailscale Tailnet and auto-discover hosts with GPUs")
+        # Re-Scan Tailscale Tailnet & Network button
+        self.btn_scan_tailnet = QPushButton("🔄 Re-Scan Network")
+        self.btn_scan_tailnet.setToolTip("Re-scan all online machines in your Tailscale Tailnet (Linux, Windows, macOS) & LAN for GPUs")
         self.btn_scan_tailnet.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Theme.CYBER_PURPLE}22;
@@ -276,10 +276,10 @@ class NetworkNodesCard(QFrame):
         if msg:
             self.lbl_scan_status.setText(msg)
             self.lbl_scan_status.setVisible(True)
-            self.btn_scan_tailnet.setText("🦊 Scanning...")
+            self.btn_scan_tailnet.setText("🔄 Scanning...")
         else:
             self.lbl_scan_status.setVisible(False)
-            self.btn_scan_tailnet.setText("🦊 Scan Tailnet")
+            self.btn_scan_tailnet.setText("🔄 Re-Scan Network")
 
     def toggle_expanded(self):
         self.set_expanded(not self.is_expanded)
@@ -292,8 +292,8 @@ class NetworkNodesCard(QFrame):
     def _on_scan_tailnet_clicked(self):
         if not self.net_manager.tailscale_enabled:
             self.net_manager.set_tailscale_enabled(True)
-        self.btn_scan_tailnet.setText("🦊 Scanning...")
-        self.net_manager.request_tailnet_scan(force_reprobe=True)
+        self.btn_scan_tailnet.setText("🔄 Scanning...")
+        self.net_manager.rescan_network()
 
     def _on_scan_clicked(self):
         self.btn_scan.setText("🔍 Scanning...")

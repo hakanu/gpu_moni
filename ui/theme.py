@@ -84,6 +84,8 @@ class Theme:
             return Theme.AMD_RED
         elif "INTEL" in v:
             return Theme.INTEL_BLUE
+        elif "APPLE" in v:
+            return Theme.CYBER_PURPLE
         return Theme.CYBER_CYAN
 
 

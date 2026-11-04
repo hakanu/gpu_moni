@@ -64,6 +64,7 @@ class MainWindow(QMainWindow):
         self.net_manager = NetworkTelemetryManager(os_name=self.hw_specs.os_info.os_name, parent=self)
         self.net_manager.nodes_updated.connect(self._on_network_nodes_updated)
         self.net_manager.tailscale_enabled_changed.connect(self._on_tailscale_enabled_changed)
+        self.net_manager.tailnet_scan_status.connect(self._on_tailnet_scan_status)
         self.network_card = NetworkNodesCard(self.net_manager)
 
         # Very Condensed View of Everything Widget
@@ -167,6 +168,12 @@ class MainWindow(QMainWindow):
         self.btn_tailscale.clicked.connect(self._on_toggle_tailscale)
         self._style_top_tailscale_btn(self.net_manager.tailscale_enabled)
         top_bar.addWidget(self.btn_tailscale)
+
+        # Re-Scan Network Button
+        self.btn_rescan = QPushButton("🔄 Re-Scan")
+        self.btn_rescan.setToolTip("Re-scan all online Tailscale Tailnet peers (Linux, Windows, macOS) & local LAN for GPU machines")
+        self.btn_rescan.clicked.connect(self._on_rescan_network)
+        top_bar.addWidget(self.btn_rescan)
 
         # Very Condensed View of Everything Toggle Button
         self.btn_condensed = QPushButton("⚡ Condensed")
@@ -295,6 +302,20 @@ class MainWindow(QMainWindow):
 
     def _on_toggle_tailscale(self, checked: bool):
         self.net_manager.set_tailscale_enabled(checked)
+
+    def _on_rescan_network(self):
+        if not self.net_manager.tailscale_enabled:
+            self.net_manager.set_tailscale_enabled(True)
+        self.btn_rescan.setText("🔄 Scanning...")
+        self.net_manager.rescan_network()
+
+    def _on_tailnet_scan_status(self, msg: str):
+        if msg:
+            self.btn_rescan.setText("🔄 Scanning...")
+            self.lbl_footer_status.setText(msg)
+        else:
+            self.btn_rescan.setText("🔄 Re-Scan")
+            self._update_gpu_count_labels()
 
     def _on_tailscale_enabled_changed(self, enabled: bool):
         self._style_top_tailscale_btn(enabled)

@@ -264,9 +264,9 @@ class CondensedDashboardWidget(QWidget):
         self._style_ts_btn(self.net_manager.tailscale_enabled)
         net_hdr.addWidget(self.btn_ts_toggle)
 
-        # Scan Tailnet mini button
-        self.btn_ts_scan = QPushButton("🦊 Scan")
-        self.btn_ts_scan.setToolTip("Scan Tailscale Tailnet for GPU machines")
+        # Re-Scan Network mini button
+        self.btn_ts_scan = QPushButton("🔄 Re-Scan Network")
+        self.btn_ts_scan.setToolTip("Re-scan all online Tailscale Tailnet peers (Linux, Windows, macOS) & local LAN for GPU machines")
         self.btn_ts_scan.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Theme.CYBER_PURPLE}22;
@@ -448,15 +448,17 @@ class CondensedDashboardWidget(QWidget):
 
     def _on_tailnet_scan_status(self, msg: str):
         if msg:
-            self.btn_ts_scan.setText("🦊 Scanning...")
+            self.btn_ts_scan.setText("🔄 Scanning...")
+            self.lbl_net_summary.setText(f"— {msg}")
         else:
-            self.btn_ts_scan.setText("🦊 Scan")
+            self.btn_ts_scan.setText("🔄 Re-Scan Network")
+            self.update_network_nodes(self.net_manager.get_visible_states())
 
     def _on_scan_tailnet(self):
         if not self.net_manager.tailscale_enabled:
             self.net_manager.set_tailscale_enabled(True)
-        self.btn_ts_scan.setText("🦊 Scanning...")
-        self.net_manager.request_tailnet_scan(force_reprobe=True)
+        self.btn_ts_scan.setText("🔄 Scanning...")
+        self.net_manager.rescan_network()
 
     def _clear_layout(self, layout):
         while layout.count() > 0:

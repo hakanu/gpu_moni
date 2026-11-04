@@ -58,46 +58,80 @@ DISCOVERY_REPLY_MAGIC = "GPUSENTRY_NODE_V1"
 CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".gpu_sentry_network.json")
 
 REMOTE_LINUX_SH_PROBE = r"""
+[ -n "$ZSH_VERSION" ] && setopt NO_NOMATCH 2>/dev/null || true
 echo "===HOST==="
-hostname
-nproc 2>/dev/null || echo 1
-cat /proc/loadavg 2>/dev/null || echo "0 0 0"
-grep -E '^(MemTotal|MemAvailable):' /proc/meminfo 2>/dev/null || true
-for t in /sys/class/thermal/thermal_zone*/temp /sys/class/hwmon/hwmon*/temp1_input; do
-  [ -r "$t" ] && echo "HTEMP=$(cat "$t" 2>/dev/null)"
-done
-echo "===NVIDIA==="
-nvidia-smi --query-gpu=index,name,pci.bus_id,driver_version,vbios_version,pcie.link.gen.current,pcie.link.width.current,pcie.link.gen.max,pcie.link.width.max,temperature.gpu,utilization.gpu,utilization.memory,memory.used,memory.total,memory.free,power.draw,power.limit,fan.speed,clocks.current.graphics,clocks.current.memory --format=csv,noheader,nounits 2>/dev/null || true
-echo "===DRM==="
-for c in /sys/class/drm/card[0-9]; do
-  [ -d "$c/device" ] || continue
-  echo "---CARD:$c---"
-  cat "$c/device/uevent" 2>/dev/null || true
-  slot=$(grep '^PCI_SLOT_NAME=' "$c/device/uevent" 2>/dev/null | cut -d= -f2)
-  if [ -n "$slot" ]; then
-    (/usr/bin/lspci -s "$slot" 2>/dev/null || /sbin/lspci -s "$slot" 2>/dev/null || true) | head -n 1 | sed 's/^/LSPCI=/'
-  fi
-  rev=$(cat "$c/device/revision" 2>/dev/null | sed 's/^0x//i' | tr 'a-f' 'A-F')
-  did=$(grep '^PCI_ID=' "$c/device/uevent" 2>/dev/null | cut -d: -f2 | tr 'a-f' 'A-F')
-  if [ -n "$did" ] && [ -f /usr/share/libdrm/amdgpu.ids ]; then
-    (grep -i "^${did},[[:space:]]*${rev}," /usr/share/libdrm/amdgpu.ids 2>/dev/null || grep -i "^${did}," /usr/share/libdrm/amdgpu.ids 2>/dev/null || true) | head -n 1 | cut -d, -f3- | sed 's/^[[:space:]]*/AMDGPU_NAME=/'
-  fi
-  echo "BUSY=$(cat $c/device/gpu_busy_percent 2>/dev/null || echo 0)"
-  echo "VRAM_USED=$(cat $c/device/mem_info_vram_used 2>/dev/null || echo 0)"
-  echo "VRAM_TOTAL=$(cat $c/device/mem_info_vram_total 2>/dev/null || echo 0)"
-  for hw in $c/device/hwmon/hwmon*; do
-    [ -d "$hw" ] || continue
-    echo "TEMP1=$(cat $hw/temp1_input 2>/dev/null || echo 0)"
-    echo "TEMP2=$(cat $hw/temp2_input 2>/dev/null || echo 0)"
-    echo "TEMP3=$(cat $hw/temp3_input 2>/dev/null || echo 0)"
-    echo "PWR=$(cat $hw/power1_average 2>/dev/null || cat $hw/power1_input 2>/dev/null || echo 0)"
-    echo "PWR_CAP=$(cat $hw/power1_cap 2>/dev/null || echo 0)"
-    echo "FAN_RPM=$(cat $hw/fan1_input 2>/dev/null || echo 0)"
-    echo "PWM=$(cat $hw/pwm1 2>/dev/null || echo 0)"
-    echo "FREQ1=$(cat $hw/freq1_input 2>/dev/null || echo 0)"
-    echo "FREQ2=$(cat $hw/freq2_input 2>/dev/null || echo 0)"
+if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+  scutil --get LocalHostName 2>/dev/null || hostname
+  sysctl -n hw.ncpu 2>/dev/null || echo 1
+  sysctl -n vm.loadavg 2>/dev/null | tr -d '{}' || echo "0 0 0"
+  echo "MAC_MEMSIZE=$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+  vm_stat 2>/dev/null | grep -E 'page size|Pages (free|active|inactive|speculative|wired)' || true
+  python3 -c '
+import ctypes
+from ctypes import c_void_p, c_int, c_int64, c_double, c_uint32
+try:
+    iokit = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/IOKit.framework/IOKit")
+    cf = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    cf.CFArrayGetCount.argtypes = [c_void_p]; cf.CFArrayGetCount.restype = c_int
+    cf.CFArrayGetValueAtIndex.argtypes = [c_void_p, c_int]; cf.CFArrayGetValueAtIndex.restype = c_void_p
+    iokit.IOHIDEventSystemClientCreate.argtypes = [c_void_p]; iokit.IOHIDEventSystemClientCreate.restype = c_void_p
+    iokit.IOHIDEventSystemClientCopyServices.argtypes = [c_void_p]; iokit.IOHIDEventSystemClientCopyServices.restype = c_void_p
+    iokit.IOHIDServiceClientCopyEvent.argtypes = [c_void_p, c_int64, c_int, c_int64]; iokit.IOHIDServiceClientCopyEvent.restype = c_void_p
+    iokit.IOHIDEventGetFloatValue.argtypes = [c_void_p, c_uint32]; iokit.IOHIDEventGetFloatValue.restype = c_double
+    c = iokit.IOHIDEventSystemClientCreate(None)
+    s = iokit.IOHIDEventSystemClientCopyServices(c)
+    ts = [iokit.IOHIDEventGetFloatValue(ev, 15 << 16) for i in range(cf.CFArrayGetCount(s) if s else 0) for ev in [iokit.IOHIDServiceClientCopyEvent(cf.CFArrayGetValueAtIndex(s, i), 15, 0, 0)] if ev]
+    ts = [t for t in ts if 15.0 < t < 120.0]
+    if ts: print(f"HTEMP={sum(ts)/len(ts):.1f}\nMACTEMP_MAX={max(ts):.1f}")
+except Exception:
+    pass
+' 2>/dev/null || true
+  echo "===NVIDIA==="
+  echo "===DRM==="
+  echo "===MACOS==="
+  ioreg -r -d 1 -w 0 -c IOAccelerator 2>/dev/null | grep -E '"model"|"gpu-core-count"|"PerformanceStatistics"|"IOSourceVersion"' || true
+else
+  hostname
+  nproc 2>/dev/null || echo 1
+  cat /proc/loadavg 2>/dev/null || echo "0 0 0"
+  grep -E '^(MemTotal|MemAvailable):' /proc/meminfo 2>/dev/null || true
+  for t in /sys/class/thermal/thermal_zone*/temp /sys/class/hwmon/hwmon*/temp1_input; do
+    [ -r "$t" ] && echo "HTEMP=$(cat "$t" 2>/dev/null)"
   done
-done
+  echo "===NVIDIA==="
+  nvidia-smi --query-gpu=index,name,pci.bus_id,driver_version,vbios_version,pcie.link.gen.current,pcie.link.width.current,pcie.link.gen.max,pcie.link.width.max,temperature.gpu,utilization.gpu,utilization.memory,memory.used,memory.total,memory.free,power.draw,power.limit,fan.speed,clocks.current.graphics,clocks.current.memory --format=csv,noheader,nounits 2>/dev/null || true
+  echo "===DRM==="
+  for c in /sys/class/drm/card[0-9]; do
+    [ -d "$c/device" ] || continue
+    echo "---CARD:$c---"
+    cat "$c/device/uevent" 2>/dev/null || true
+    slot=$(grep '^PCI_SLOT_NAME=' "$c/device/uevent" 2>/dev/null | cut -d= -f2)
+    if [ -n "$slot" ]; then
+      (/usr/bin/lspci -s "$slot" 2>/dev/null || /sbin/lspci -s "$slot" 2>/dev/null || true) | head -n 1 | sed 's/^/LSPCI=/'
+    fi
+    rev=$(cat "$c/device/revision" 2>/dev/null | sed 's/^0x//i' | tr 'a-f' 'A-F')
+    did=$(grep '^PCI_ID=' "$c/device/uevent" 2>/dev/null | cut -d: -f2 | tr 'a-f' 'A-F')
+    if [ -n "$did" ] && [ -f /usr/share/libdrm/amdgpu.ids ]; then
+      (grep -i "^${did},[[:space:]]*${rev}," /usr/share/libdrm/amdgpu.ids 2>/dev/null || grep -i "^${did}," /usr/share/libdrm/amdgpu.ids 2>/dev/null || true) | head -n 1 | cut -d, -f3- | sed 's/^[[:space:]]*/AMDGPU_NAME=/'
+    fi
+    echo "BUSY=$(cat $c/device/gpu_busy_percent 2>/dev/null || echo 0)"
+    echo "VRAM_USED=$(cat $c/device/mem_info_vram_used 2>/dev/null || echo 0)"
+    echo "VRAM_TOTAL=$(cat $c/device/mem_info_vram_total 2>/dev/null || echo 0)"
+    for hw in $c/device/hwmon/hwmon*; do
+      [ -d "$hw" ] || continue
+      echo "TEMP1=$(cat $hw/temp1_input 2>/dev/null || echo 0)"
+      echo "TEMP2=$(cat $hw/temp2_input 2>/dev/null || echo 0)"
+      echo "TEMP3=$(cat $hw/temp3_input 2>/dev/null || echo 0)"
+      echo "PWR=$(cat $hw/power1_average 2>/dev/null || cat $hw/power1_input 2>/dev/null || echo 0)"
+      echo "PWR_CAP=$(cat $hw/power1_cap 2>/dev/null || echo 0)"
+      echo "FAN_RPM=$(cat $hw/fan1_input 2>/dev/null || echo 0)"
+      echo "PWM=$(cat $hw/pwm1 2>/dev/null || echo 0)"
+      echo "FREQ1=$(cat $hw/freq1_input 2>/dev/null || echo 0)"
+      echo "FREQ2=$(cat $hw/freq2_input 2>/dev/null || echo 0)"
+    done
+  done
+  echo "===MACOS==="
+fi
 true
 """
 
@@ -329,8 +363,8 @@ class NetworkTelemetryManager(QObject):
         if self.server_enabled:
             self.local_server.start()
         self.request_lan_scan()
-        # Only auto-scan Tailnet on startup if Tailscale is enabled and no Tailscale nodes are saved yet
-        if self.tailscale_enabled and not any(c.is_tailscale for c in self.configs.values()):
+        # Always queue a background Tailnet scan on startup (runs right after saved nodes are polled)
+        if self.tailscale_enabled:
             self.request_tailnet_scan()
         threading.Thread(target=self._poll_loop, daemon=True).start()
 
@@ -424,12 +458,28 @@ class NetworkTelemetryManager(QObject):
 
     def request_lan_scan(self):
         self._scan_requested = True
+        self._wake_poll = True
 
     def request_tailnet_scan(self, force_reprobe: bool = False):
         if force_reprobe:
             with self._lock:
                 self._probed_tailscale_peers.clear()
         self._tailnet_scan_requested = True
+        self._wake_poll = True
+
+    def rescan_network(self):
+        """Force an immediate full re-scan of both Tailscale Tailnet and local LAN."""
+        with self._lock:
+            self._probed_tailscale_peers.clear()
+        self._scan_requested = True
+        if self.tailscale_enabled:
+            self._tailnet_scan_requested = True
+        self._wake_poll = True
+        if self._running:
+            try:
+                self.tailnet_scan_status.emit("🔄 Re-scanning Tailnet & LAN for GPU machines...")
+            except RuntimeError:
+                pass
 
     def add_node(
         self,
@@ -649,9 +699,13 @@ class NetworkTelemetryManager(QObject):
             if not p.get("Online"):
                 continue
             os_type = str(p.get("OS", "")).lower()
-            if os_type not in ("linux", "windows"):
+            if os_type not in ("linux", "windows", "macos", "darwin"):
                 continue
-            host_name = str(p.get("HostName", "")).strip()
+            raw_host = str(p.get("HostName", "")).strip()
+            dns_name = str(p.get("DNSName", "")).strip().rstrip(".")
+            dns_short = dns_name.split(".")[0].strip() if dns_name else ""
+            # Prefer clean DNS hostname (e.g. 'hakumacmini') over verbose HostName ('hakumacmini’s Mac mini')
+            host_name = dns_short or raw_host
             ts_ips = p.get("TailscaleIPs", [])
             ip = ts_ips[0] if ts_ips else ""
             if not host_name and not ip:
@@ -662,14 +716,22 @@ class NetworkTelemetryManager(QObject):
                     continue
                 # Skip if already configured
                 if any(
-                    c.tailscale_ip == ip or c.label.lower() == host_name.lower() or c.address.endswith(f"@{host_name}")
+                    c.tailscale_ip == ip
+                    or c.label.lower() in (host_name.lower(), raw_host.lower())
+                    or c.address.endswith(f"@{host_name}")
+                    or (ip and c.address.endswith(f"@{ip}"))
                     for c in self.configs.values()
                 ):
                     self._probed_tailscale_peers.add(peer_key)
                     continue
-            candidates.append((peer_key, host_name, ip, os_type))
+            candidates.append((peer_key, host_name, ip, os_type, dns_short))
 
         if not candidates:
+            if self._running:
+                try:
+                    self.tailnet_scan_status.emit("")
+                except RuntimeError:
+                    pass
             return
 
         if self._running:
@@ -690,7 +752,7 @@ class NetworkTelemetryManager(QObject):
                 ssh_users.append(u)
 
         def _probe_tailscale_peer(item):
-            peer_key, host_name, ip, os_type = item
+            peer_key, host_name, ip, os_type, dns_short = item
             with self._lock:
                 self._probed_tailscale_peers.add(peer_key)
 
@@ -727,7 +789,8 @@ class NetworkTelemetryManager(QObject):
             except Exception:
                 return None
 
-            target_host = host_name if host_name else ip
+            # Use clean DNS short name or Tailscale IP for SSH target (avoids spaces/apostrophes in macOS HostName)
+            target_host = dns_short if (dns_short and " " not in dns_short) else (ip or host_name)
             for user in ssh_users:
                 addr = f"{user}@{target_host}"
                 node_id = f"ssh://{addr}"
@@ -756,25 +819,30 @@ class NetworkTelemetryManager(QObject):
             return None
 
         discovered_count = 0
-        for item in candidates:
-            if not self._running or not self.tailscale_enabled:
-                break
-            res = _probe_tailscale_peer(item)
-            if res is not None:
-                cfg, st = res
-                with self._lock:
-                    self.configs[cfg.node_id] = cfg
-                    self.states[cfg.node_id] = st
-                discovered_count += 1
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+            futures = [pool.submit(_probe_tailscale_peer, item) for item in candidates]
+            for fut in concurrent.futures.as_completed(futures):
+                if not self._running or not self.tailscale_enabled:
+                    break
+                try:
+                    res = fut.result()
+                except Exception:
+                    res = None
+                if res is not None:
+                    cfg, st = res
+                    with self._lock:
+                        self.configs[cfg.node_id] = cfg
+                        self.states[cfg.node_id] = st
+                    discovered_count += 1
+                    snapshot = self.get_visible_states()
+                    if self._running:
+                        try:
+                            self.nodes_updated.emit(snapshot)
+                        except RuntimeError:
+                            pass
 
         if discovered_count > 0:
             self._save_config()
-            snapshot = self.get_visible_states()
-            if self._running:
-                try:
-                    self.nodes_updated.emit(snapshot)
-                except RuntimeError:
-                    pass
 
         if self._running:
             try:
@@ -1022,18 +1090,27 @@ class NetworkTelemetryManager(QObject):
             host_sec = ""
             nv_sec = ""
             drm_sec = ""
+            mac_sec = ""
             if "===NVIDIA===" in out:
                 p1, rest = out.split("===NVIDIA===", 1)
                 host_sec = p1.split("===HOST===", 1)[-1]
                 if "===DRM===" in rest:
-                    nv_sec, drm_sec = rest.split("===DRM===", 1)
+                    nv_sec, rest2 = rest.split("===DRM===", 1)
+                    if "===MACOS===" in rest2:
+                        drm_sec, mac_sec = rest2.split("===MACOS===", 1)
+                    else:
+                        drm_sec = rest2
                 else:
                     nv_sec = rest
 
             # 1. Parse Host Section
             h_lines = [ln.strip() for ln in host_sec.strip().splitlines() if ln.strip()]
             if h_lines:
-                state.hostname = h_lines[0]
+                raw_hn = h_lines[0]
+                if cfg.label and ("mac-mini" in raw_hn.lower() or "macbook" in raw_hn.lower() or " " in raw_hn):
+                    state.hostname = cfg.label
+                else:
+                    state.hostname = raw_hn
             nproc = 1
             if len(h_lines) >= 2 and h_lines[1].isdigit():
                 nproc = max(1, int(h_lines[1]))
@@ -1047,6 +1124,9 @@ class NetworkTelemetryManager(QObject):
 
             mem_total_kb = 0
             mem_avail_kb = 0
+            mac_page_size = 16384
+            mac_pages_used = 0
+            mac_temp_max = 0.0
             host_temps = []
             for ln in h_lines[3:]:
                 if ln.startswith("MemTotal:"):
@@ -1057,6 +1137,24 @@ class NetworkTelemetryManager(QObject):
                     parts = ln.split()
                     if len(parts) >= 2 and parts[1].isdigit():
                         mem_avail_kb = int(parts[1])
+                elif ln.startswith("MAC_MEMSIZE="):
+                    try:
+                        mem_total_kb = int(ln.split("=", 1)[1].strip()) // 1024
+                    except Exception:
+                        pass
+                elif "page size of" in ln:
+                    m_ps = re.search(r"page size of\s+(\d+)\s+bytes", ln)
+                    if m_ps:
+                        mac_page_size = int(m_ps.group(1))
+                elif ln.startswith(("Pages active:", "Pages wired down:")):
+                    m_pg = re.search(r":\s*(\d+)", ln)
+                    if m_pg:
+                        mac_pages_used += int(m_pg.group(1))
+                elif ln.startswith("MACTEMP_MAX="):
+                    try:
+                        mac_temp_max = float(ln.split("=", 1)[1].strip())
+                    except Exception:
+                        pass
                 elif ln.startswith("HTEMP="):
                     try:
                         tv = float(ln.split("=", 1)[1])
@@ -1066,6 +1164,10 @@ class NetworkTelemetryManager(QObject):
                             host_temps.append(tv)
                     except Exception:
                         pass
+
+            if mac_pages_used > 0 and mem_total_kb > 0 and mem_avail_kb == 0:
+                used_kb = (mac_pages_used * mac_page_size) // 1024
+                mem_avail_kb = max(0, mem_total_kb - used_kb)
 
             ram_tot_gb = round(mem_total_kb / (1024 * 1024), 1) if mem_total_kb > 0 else 0.0
             ram_free_gb = round(mem_avail_kb / (1024 * 1024), 1) if mem_avail_kb > 0 else 0.0
@@ -1277,6 +1379,81 @@ class NetworkTelemetryManager(QObject):
                 )
                 state.gpus.append(dev)
                 state.gpu_metrics[dev_id] = metrics
+
+            # 4. Parse macOS Apple Silicon / Metal GPUs (IOAccelerator)
+            if mac_sec.strip():
+                state.os_name = "Tailscale SSH macOS" if cfg.is_tailscale else "SSH macOS Host"
+                mac_model = ""
+                mac_cores = 0
+                mac_drv = ""
+                dev_util = 0.0
+                rend_util = 0.0
+                tiler_util = 0.0
+                alloc_mem_bytes = 0
+                inuse_mem_bytes = 0
+
+                for ln in mac_sec.splitlines():
+                    ln = ln.strip()
+                    m_mod = re.search(r'"model"\s*=\s*"([^"]+)"', ln)
+                    if m_mod:
+                        mac_model = m_mod.group(1).strip()
+                    m_cor = re.search(r'"gpu-core-count"\s*=\s*(\d+)', ln)
+                    if m_cor:
+                        mac_cores = int(m_cor.group(1))
+                    m_drv = re.search(r'"IOSourceVersion"\s*=\s*"([^"]+)"', ln)
+                    if m_drv:
+                        mac_drv = m_drv.group(1).strip()
+                    if '"PerformanceStatistics"' in ln:
+                        m_du = re.search(r'"Device Utilization %"\s*=\s*(\d+)', ln)
+                        if m_du:
+                            dev_util = float(m_du.group(1))
+                        m_ru = re.search(r'"Renderer Utilization %"\s*=\s*(\d+)', ln)
+                        if m_ru:
+                            rend_util = float(m_ru.group(1))
+                        m_tu = re.search(r'"Tiler Utilization %"\s*=\s*(\d+)', ln)
+                        if m_tu:
+                            tiler_util = float(m_tu.group(1))
+                        m_am = re.search(r'"Alloc system memory"\s*=\s*(\d+)', ln)
+                        if m_am:
+                            alloc_mem_bytes = int(m_am.group(1))
+                        m_im = re.search(r'"In use system memory"\s*=\s*(\d+)', ln)
+                        if m_im:
+                            inuse_mem_bytes = int(m_im.group(1))
+
+                if mac_model:
+                    gpu_label = f"{mac_model} ({mac_cores}-Core GPU)" if mac_cores > 0 else mac_model
+                    busy_pct = max(dev_util, rend_util, tiler_util)
+                    vram_t_mb = round(ram_tot_gb * 1024.0, 1)
+                    used_bytes = max(alloc_mem_bytes, inuse_mem_bytes)
+                    vram_u_mb = round(used_bytes / (1024 * 1024), 1) if used_bytes > 0 else round(ram_used_gb * 1024.0, 1)
+                    vram_f_mb = round(max(0.0, vram_t_mb - vram_u_mb), 1)
+                    mem_pct = round((vram_u_mb / vram_t_mb) * 100.0, 1) if vram_t_mb > 0 else 0.0
+
+                    idx = len(state.gpus)
+                    dev_id = f"net_ssh_{state.hostname}_mac_{idx}"
+                    metrics = GpuMetrics(
+                        gpu_util_percent=busy_pct,
+                        mem_util_percent=mem_pct,
+                        temp_core_c=cpu_temp_c,
+                        temp_hotspot_c=round(mac_temp_max, 1) if mac_temp_max > 0 else None,
+                        vram_used_mb=vram_u_mb,
+                        vram_total_mb=vram_t_mb,
+                        vram_free_mb=vram_f_mb,
+                    )
+                    dev = GpuDevice(
+                        device_id=dev_id,
+                        index=idx,
+                        name=f"[{state.hostname}] {gpu_label}",
+                        vendor="Apple",
+                        bus_id=f"{cfg.address} • Apple Silicon Unified Memory",
+                        driver_version=f"Metal ({mac_drv})" if mac_drv else "Metal",
+                        architecture="Apple Silicon AGX",
+                        cuda_cores=mac_cores if mac_cores > 0 else None,
+                        vram_total_mb=vram_t_mb,
+                        metrics=metrics,
+                    )
+                    state.gpus.append(dev)
+                    state.gpu_metrics[dev_id] = metrics
 
         except Exception as e:
             state.online = False

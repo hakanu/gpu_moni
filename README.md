@@ -55,7 +55,8 @@ Built specifically for multi-GPU workstations, Ubuntu AI/ROCm servers, and LAN/T
   - **⚡ Very Condensed View of Everything (Default, or `--condensed` / `⚡ Condensed` button)**: Packs **Host CPU & RAM**, **All Local GPUs**, **All Tailscale/Network GPUs**, **Active GPU Processes**, and **Hardware Specs Summary** into a single ultra-dense, zero-scroll window (`CondensedDashboardWidget`). Uncheck **`⚡ Condensed`** (or pass `--expanded`) anytime to switch to the full multi-card view with radial arc gauges and 60s sparklines.
   - **🦊 1-Click Tailscale ON / OFF Controls (`🦊 Tailscale: ON/OFF` & `--no-tailscale`)**: Turn Tailscale-based GPU discovery and polling completely ON or OFF at any time from the top navigation bar, the Condensed view, the Network GPUs card, the System Tray menu, or by pressing `t` in `gpu-sentry-tui`. Individual remote nodes can also be toggled `ON` or `OFF` independently.
 - **🌐 Tailscale Tailnet & LAN GPU Monitoring (VRAM, Thermals & Wattage)**:
-  - **Automatic Tailscale Tailnet GPU Discovery**: Scans `tailscale status --json` and probes online Linux & Windows Tailnet peers over Tailscale SSH / agent ports to automatically discover every machine equipped with an NVIDIA (`nvidia-smi`), AMD (`amdgpu` DRM/`hwmon`), or Intel (`i915`/`xe` DRM/`hwmon`) GPU.
+  - **Automatic Tailscale Tailnet GPU Discovery**: Scans `tailscale status --json` and probes online Linux, macOS & Windows Tailnet peers over Tailscale SSH / agent ports in parallel to automatically discover every machine equipped with an NVIDIA (`nvidia-smi`), AMD (`amdgpu` DRM/`hwmon`), Apple Silicon Metal (`ioreg` / `IOAccelerator` — M1/M2/M3/M4), or Intel (`i915`/`xe` DRM/`hwmon`) GPU.
+  - **🔄 1-Click Network Re-Scan (`🔄 Re-Scan Network` button & `r`/`s` TUI hotkey)**: Clears cached discovery states and immediately re-scans both your Tailscale Tailnet and local LAN for newly connected machines (e.g. newly booted Mac minis, laptops, or remote rigs).
   - **Dedicated Tailnet VRAM, Multi-Sensor Thermals & Wattage Tracking**:
     - **VRAM Usage**: Real-time dedicated VRAM used vs. total GB, utilization percentage, and color-coded memory pressure bar (e.g., `VRAM ■■■■■■ 23.0 / 24.0 GB (96%)`), plus aggregated **Tailnet-wide VRAM usage** in the section header.
     - **Multi-Sensor GPU Thermals**: Displays **Core/Edge (°C)**, **Hotspot/Junction (°C)** (`temp2_input`), **VRAM Memory (°C)** (`temp3_input`), **Fan Speed (RPM & %)**, and dynamic thermal safety badges (`COOL` / `NORMAL` / `WARM` / `HOT` / `THROTTLE`).
@@ -348,7 +349,8 @@ gpu-sentry --tui
   - `2`: Show/Hide Local GPUs (NVIDIA `nvml`, AMD `amdgpu`, Intel `i915`/`xe`)
   - `3`: Show/Hide Tailscale Tailnet & LAN GPUs
   - `4` / `h`: Toggle bottom panel between **Active GPU Processes** and **Deep SMBIOS Hardware Specifications**
-  - `s` / `t`: Force immediate Tailscale Tailnet & LAN GPU scan
+  - `t`: Toggle Tailscale monitoring `ON` or `OFF`
+  - `r` / `s`: Force immediate full **Re-Scan** of Tailscale Tailnet & LAN for newly connected GPU machines
   - `+` / `-`: Increase / decrease refresh rate (`250ms` – `3000ms`)
   - `p` / `Space`: Pause / Resume telemetry
   - `q` / `Esc`: Quit cleanly
@@ -468,6 +470,13 @@ uv tool install --upgrade --reinstall --force git+https://github.com/hakanu/gpu_
 ### Q4: How do I switch between the default Very Condensed View and the Full Cards View (with circular gauges & 60s sparklines)?
 - **In the GUI**: Click the **`⚡ Condensed`** button in the top navigation bar (or toggle **`⚡ Very Condensed View`** in the system tray menu).
 - **Via CLI**: Run `gpu-sentry --expanded` for Full Cards or `gpu-sentry --condensed` for the Condensed View.
+
+### Q5: Why is a machine on my Tailnet (like a Mac mini or Linux box) not showing up, or how do I re-scan?
+- **Hit Re-Scan**: Click the **`🔄 Re-Scan`** button in the GUI navigation bar (or press `r` in the TUI). This clears probed peer caches and triggers an immediate parallel probe of all online Tailnet and LAN machines.
+- **Ensure SSH or GPU Sentry is running**:
+  - For **Linux & macOS (e.g. Apple Silicon Mac mini / MacBook)**: Ensure **Tailscale SSH** is enabled on the remote machine (`tailscale up --ssh` or Remote Login enabled in System Settings). GPU Sentry connects agentlessly over SSH to read Metal/IOAccelerator or DRM sysfs metrics without requiring root.
+  - For **Windows**: Run `gpu-sentry --agent` on the remote machine (port `51920`) or run `LibreHardwareMonitor` with its web server enabled (port `8085`).
+- **Check DNS name**: If your machine's OS hostname contains spaces or quotes (e.g. `hakumacmini’s Mac mini`), GPU Sentry automatically resolves the clean MagicDNS hostname (`hakumacmini`) to connect cleanly.
 
 ---
 

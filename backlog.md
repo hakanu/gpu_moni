@@ -22,8 +22,15 @@
   - Added per-node `ON` / `OFF` enable/disable toggles in `NetworkNodesCard` and `CondensedDashboardWidget`.
   - Created **`CondensedDashboardWidget`** ([ui/widgets/condensed_dashboard.py](file:///mnt/DEV_NAS/CODE/workspace-py/gpu_moni/ui/widgets/condensed_dashboard.py)) and the **`⚡ Condensed`** toggle button (`--condensed`) to show CPU, RAM, Local GPUs, Tailscale GPUs, Active GPU Processes, and Hardware Specs in a single ultra-dense view.
   - Added **`⚡ Condensed Rows`** mode (enabled by default) inside `NetworkNodesCard`.
+- [x] **Network Re-Scan Option & Apple Silicon / macOS Discovery (`v1.1.4`)**:
+  - Added **`🔄 Re-Scan`** / **`🔄 Re-Scan Network`** button in the GUI navigation bar (`ui/main_window.py`), `CondensedDashboardWidget` (`ui/widgets/condensed_dashboard.py`), and `NetworkNodesCard` (`ui/widgets/network_nodes_card.py`), as well as `r` / `s` hotkey in `ui/tui_dashboard.py`.
+  - Clears probed Tailscale cache and triggers an immediate parallel probe of both Tailscale Tailnet and local LAN nodes.
+  - Added full macOS & Apple Silicon GPU support (`IOAccelerator` / `Metal`): parses GPU model (e.g. `Apple M4 (10-Core GPU)`), Metal driver version, core count, live `Device Utilization %`, `Renderer Utilization %`, `Tiler Utilization %`, Unified Memory (`sysctl hw.memsize` + `vm_stat`), and non-root die temperatures via `IOHIDEventSystemClient`.
+  - Added clean DNS MagicDNS resolution (`DNSName`) so macOS machines with spaces or special characters in `HostName` (e.g. `hakumacmini’s Mac mini` -> `hakumacmini`) connect cleanly over SSH.
+  - Added zsh compatibility guard (`setopt NO_NOMATCH`) to the remote SSH probe so zsh on macOS does not abort on Linux sysfs glob patterns.
+  - Bumped version to `v1.1.4` and verified `hakumacmini` and `hakux` discovery and telemetry.
 - [x] **Documentation (`README.md`)**:
-  - Documented `uv` installation and git-based self-update workflows, Ubuntu setup, native AMD `amdgpu` telemetry features, and TUI usage.
+  - Documented `uv` installation and git-based self-update workflows, Ubuntu setup, native AMD `amdgpu` telemetry features, TUI usage, and FAQ for Windows `taskkill` and Tailnet troubleshooting / Re-Scan.
 
 ## 📋 Future Enhancements / Backlog
 
