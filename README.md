@@ -1,547 +1,133 @@
 # GPU & System Sentry ⚡
 
-[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Ubuntu%20%7C%20Linux-brightgreen.svg)]()
-[![Installed with uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Release](https://img.shields.io/github/v/release/hakanu/gpu_moni?color=00e676)](https://github.com/hakanu/gpu_moni/releases/latest)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS%20(remote)-brightgreen.svg)]()
 [![CI](https://github.com/hakanu/gpu_moni/actions/workflows/ci.yml/badge.svg)](https://github.com/hakanu/gpu_moni/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A high-performance, lightweight, modern cross-platform (**Windows, Ubuntu & Linux**) desktop and terminal telemetry & hardware inspection dashboard providing near real-time telemetry for **CPU, System RAM, Local GPUs (NVIDIA, AMD `amdgpu`, Intel), Remote Network GPUs, and Deep SMBIOS/Hardware Specifications** in one unified interface.
+A lightweight, real-time **multi-GPU, CPU, RAM, hardware specs & Tailscale/LAN telemetry** dashboard for **Windows & Linux** — available as a desktop GUI, a floating Windows taskbar widget, and a `bpytop`-inspired terminal UI (`gpu-sentry-tui`).
 
-Built specifically for multi-GPU workstations, Ubuntu AI/ROCm servers, and LAN/Tailnet clusters (e.g., AMD Radeon RX 7000/9000 + Ryzen APUs + NVIDIA GeForce RTX + Intel Arc + remote Linux/Windows GPU nodes) alongside AMD Ryzen / Intel Core processors.
-
-![GPU & System Sentry Dashboard Preview](assets/screenshot.png)
-
----
-
-## 📑 Table of Contents
-
-- [✨ Key Features](#-key-features)
-- [📦 Install & Auto-Update (GitHub Releases or `uv`)](#-install--auto-update-github-releases-or-uv)
-- [🚀 Quick Start](#-quick-start)
-  - [🐧 Ubuntu & Linux Setup (AMD Radeon / NVIDIA / Intel)](#-ubuntu--linux-setup-amd-radeon--nvidia--intel)
-  - [🪟 Windows Setup](#-windows-setup)
-- [🔴 Native AMD GPU Support on Ubuntu (`amdgpu` + TUI)](#-native-amd-gpu-support-on-ubuntu-amdgpu--tui)
-- [🌐 Network & Tailscale Tailnet GPU Monitoring](#-network--tailscale-tailnet-gpu-monitoring)
-- [🧬 Deep Hardware & SMBIOS Specifications](#-deep-hardware--smbios-specifications)
-- [⌨️ Command Line Usage & `bpytop` TUI](#️-command-line-usage)
-- [💡 Tips & Desktop Integration](#-tips--desktop-integration)
-  - [Windows Taskbar Widget](#-windows-taskbar-widget)
-  - [Windows Start Menu & Autostart](#-windows-start-menu--autostart)
-  - [Linux Wayland & System Tray](#-linux-wayland--system-tray)
-- [🏗️ Architecture](#-architecture)
-- [❓ FAQ & Troubleshooting](#-faq--troubleshooting)
-- [🛠️ Development & Packaging](#️-development--packaging)
-- [📄 License](#-license)
+![GPU Sentry Live Demo](assets/demo.gif)
 
 ---
 
-## ✨ Key Features
+## 🚀 Quick Install
 
-- **💻 CPU Telemetry & Microarchitecture**:
-  - Processor model, vendor, family/stepping, and socket (`Socket AM5`, `FP8`, `LGA1700`, etc.).
-  - Core & thread topology (`8 Physical Cores • 16 Logical Threads`), L1/L2/L3 cache hierarchy, and supported ISA extensions (`AVX-512`, `AVX2`, `SSE4.2`, Virtualization).
-  - Real-time overall CPU Core Load percentage with radial arc gauge and Unicode Braille sparklines.
-  - Live Core Clock frequency (MHz / GHz) alongside Base Clock, Max Boost Clock, and Bus/BCLK frequency.
-  - CPU Package Temperature (°C) with dynamic thermal safety status (via kernel `hwmon` / `k10temp` / `zenpower` / `coretemp` on Linux, ADL/LHM on Windows) and CPU Power consumption in Watts (RAPL / `hwmon`).
-  - Expandable **Logical Cores Breakdown**: live bar graph for every thread (`T00` through `T15+`).
-- **🧠 System RAM (Memory) Telemetry & Channel Architecture**:
-  - Live Used / Total System RAM (e.g., `29.6 / 64.0 GB (46%)`), Available RAM, and Pagefile / Swap usage.
-  - Deep SMBIOS Type 16 & Type 17 inspection (works **without root** on Ubuntu via `/run/udev/data/+dmi:id`): **Channel Architecture** (`Dual Channel (1 DPC • 2 DIMMs)`), **Memory Type & Form Factor** (`DDR5 DIMM` / `SODIMM`), **Active Configured Speed** (`5600 MT/s`) + **Real DRAM Clock** (`2800 MHz`), **JEDEC Base Speed** (`4800 MT/s`), **XMP / EXPO Rated Profile** (`6000 MT/s CL30`), **Operating Voltage** (`1.10 V`), and **Per-Slot Physical DIMM Breakdown Table**.
-- **🔴 First-Class Native AMD (`amdgpu`), NVIDIA (`NVML`) & Intel (`i915`/`xe`) GPU Monitoring**:
-  - Automatically discovers and displays all physical GPUs side by side with exact marketing model names (`AMD Radeon RX 7900 XTX`, `AMD Radeon 780M Graphics`, `NVIDIA GeForce RTX 4090`), architecture (`RDNA 3`, `RDNA 3.5`, `Ada Lovelace`, `Blackwell`), VBIOS version, and current vs. max PCIe link speed (`Gen 4 x16`).
-  - **Zero-dependency Linux `amdgpu` DRM + `hwmon` backend**: reads dedicated VRAM & shared GTT memory, Edge / Junction (Hotspot) / VRAM Memory temperatures, board wattage & PPT power cap, Fan RPM & PWM %, GFX / Memory / SoC DPM clocks, and active ROCm Compute (`/dev/kfd`) & Graphics (`/dev/dri`) processes via `/proc/<pid>/fdinfo`.
-- **⚡ Multi-View Desktop GUI (Very Condensed View by Default + Full Cards & Compact Modes)**:
-  - **⚡ Very Condensed View of Everything (Default, or `--condensed` / `⚡ Condensed` button)**: Packs **Host CPU & RAM**, **All Local GPUs**, **All Tailscale/Network GPUs**, **Active GPU Processes**, and **Hardware Specs Summary** into a single ultra-dense, zero-scroll window (`CondensedDashboardWidget`). Uncheck **`⚡ Condensed`** (or pass `--expanded`) anytime to switch to the full multi-card view with radial arc gauges and 60s sparklines.
-  - **📐 Responsive Wrapping UI & Window Scaling**: Uses `FlowLayout` toolbars/filter bars and word-wrapping `WrapButton`s so button labels never clip when resized, automatically fits to your screen's `availableGeometry()`, remembers window geometry/maximized state, and supports configurable **UI Scale (`85%`–`150%`)** and **°C / °F** temperature units.
-  - **⚙️ Centralized Settings Dialog (`⚙ Settings`)**: Manage startup/autostart, start-minimized, close-to-tray behavior, UI scale, °C/°F, polling interval, local LAN agent port, taskbar widget layout/opacity/GPU target, and GitHub Releases auto-update preferences from one organized dialog (`~/.gpu_sentry_settings.json`).
-  - **🔄 GitHub Releases Auto-Updater & Dual Packaging**: Ships both a **standalone no-console Windows GUI `.exe`/`.zip`** (zero Python required) and a **Python wheel / `uv tool`** package for Windows & Linux, with background GitHub Releases update checking, `SHA256SUMS.txt` verification, and silent self-updates.
-  - **🦊 Opt-In Tailscale Monitoring & 1-Click Refresh (`🦊 Tailscale: OFF/ON` & `🔄 Refresh Tailnet`)**: Tailscale auto-scanning is **OFF by default on fresh installations** so the app never surprises you with background network/SSH probes. Enable it anytime with **`🦊 Tailscale: OFF`** or click **`🔄 Refresh Tailnet`** (or press `t` / `r` in `gpu-sentry-tui`) to discover and refresh Tailnet GPU machines on demand. Individual remote nodes can also be toggled `ON` or `OFF` independently.
-- **🌐 Tailscale Tailnet & LAN GPU Monitoring (VRAM, Thermals & Wattage)**:
-  - **Automatic Tailscale Tailnet GPU Discovery**: Scans `tailscale status --json` and probes online Linux, macOS & Windows Tailnet peers over Tailscale SSH / agent ports in parallel to automatically discover every machine equipped with an NVIDIA (`nvidia-smi`), AMD (`amdgpu` DRM/`hwmon`), Apple Silicon Metal (`ioreg` / `IOAccelerator` — M1/M2/M3/M4), or Intel (`i915`/`xe` DRM/`hwmon`) GPU.
-  - **🔄 1-Click Network Re-Scan (`🔄 Re-Scan Network` button & `r`/`s` TUI hotkey)**: Clears cached discovery states and immediately re-scans both your Tailscale Tailnet and local LAN for newly connected machines (e.g. newly booted Mac minis, laptops, or remote rigs).
-  - **Dedicated Tailnet VRAM, Multi-Sensor Thermals & Wattage Tracking**:
-    - **VRAM Usage**: Real-time dedicated VRAM used vs. total GB, utilization percentage, and color-coded memory pressure bar (e.g., `VRAM ■■■■■■ 23.0 / 24.0 GB (96%)`), plus aggregated **Tailnet-wide VRAM usage** in the section header.
-    - **Multi-Sensor GPU Thermals**: Displays **Core/Edge (°C)**, **Hotspot/Junction (°C)** (`temp2_input`), **VRAM Memory (°C)** (`temp3_input`), **Fan Speed (RPM & %)**, and dynamic thermal safety badges (`COOL` / `NORMAL` / `WARM` / `HOT` / `THROTTLE`).
-    - **Wattage & Power Limits**: Live GPU power draw vs. board TDP limit (`🔥 327.0W/327W`), plus aggregated **Total Tailnet GPU Wattage** and **Peak Tailnet GPU Temperature** in the header.
-  - **Zero-Config LAN Auto-Discovery & LibreHardwareMonitor (`:8085`)**: Automatically finds other PCs/servers running GPU Sentry (`gpu-sentry --agent`) on your subnet (`:51920` / `:51921`) or LibreHardwareMonitor web servers (`:8085`).
-- **🖥️ `bpytop`-Inspired Terminal UI (`gpu-sentry-tui` / `gpu-sentry --tui`)**:
-  - Pure-terminal 24-bit TrueColor ANSI dashboard with Unicode Braille sparklines (`⣀⣄⣤⣦⣶⣷⣿`), rounded box-drawing frames, per-core CPU bars, DDR5 channel/MHz badges, local NVIDIA/AMD/Intel GPU boxes, Tailscale Tailnet GPU table, active GPU process inspector, and SMBIOS hardware inspector.
-  - Automatic headless fallback: running `gpu-sentry` over SSH on an Ubuntu server without `$DISPLAY` or `$WAYLAND_DISPLAY` automatically launches the interactive TUI.
-  - Ultra-low resource footprint: **`~0.05%` CPU**, **`~38 MB` Private RAM** (no `PyQt6` loaded in TUI mode), and **`~5 ms`** local poll latency.
+### 🪟 Windows (Recommended — Standalone GUI `.exe`, No Python, Auto-Updates)
 
----
-
-## 📦 Install & Auto-Update (GitHub Releases or `uv`)
-
-### Option 1: Standalone Windows GUI App (Recommended for Windows — Zero Console, Auto-Updates)
-
-Download the latest **`gpu-sentry-windows-x64.exe`** (or `.zip`) from **[GitHub Releases](https://github.com/hakanu/gpu_moni/releases/latest)** — no Python installation required, no background terminal window, and built-in automatic updates with `SHA256SUMS.txt` verification:
+Download **`gpu-sentry-windows-x64.exe`** from **[GitHub Releases](https://github.com/hakanu/gpu_moni/releases/latest)**, or run this one-liner in PowerShell:
 
 ```powershell
-# PowerShell one-liner: install standalone Windows GUI exe to %LOCALAPPDATA%\GPUSentry
 $dir = "$env:LOCALAPPDATA\GPUSentry"; New-Item -ItemType Directory -Force -Path $dir | Out-Null
 Invoke-WebRequest -Uri "https://github.com/hakanu/gpu_moni/releases/latest/download/gpu-sentry-windows-x64.exe" -OutFile "$dir\gpu-sentry.exe" -UseBasicParsing
 Start-Process "$dir\gpu-sentry.exe" -ArgumentList "--install-shortcut" -Wait
-Start-Process "$dir\gpu-sentry.exe" -ArgumentList "--autostart" -Wait
 Start-Process "$dir\gpu-sentry.exe"
 ```
 
-Auto-updates can be toggled or triggered anytime under **⚙ Settings → Updates** (automatically waits for the PyInstaller bootloader parent to exit, performs an atomic `.exe` swap, clears inherited `_PYI_*` environment variables, and relaunches cleanly).
+- Zero console window (`WINDOWS_GUI` binary)
+- Auto-checks & installs new GitHub Releases with `SHA256SUMS.txt` verification (**⚙ Settings → Updates**)
 
-### Option 2: Install & Auto-Update with `uv` (Ubuntu, Linux, macOS & Windows)
-
-Every GitHub Release also publishes a cross-platform Python wheel (`gpu_sentry-*.whl`) and source distribution (`.tar.gz`). On **Ubuntu / Linux / macOS**, both the GUI auto-updater (**⚙ Settings → Updates**) and the CLI (`gpu-sentry --update`) automatically fetch the latest GitHub Release wheel and upgrade via `uv tool` (or `pip`), with automatic recovery if a `uv` tool venv is corrupted.
-
-### 1. Install directly from GitHub with `uv`
+### 🐧 Ubuntu / Linux (or Windows via `uv`)
 
 ```bash
-# Install (or overwrite) the latest version directly from the Git repository
-uv tool install --reinstall --force git+https://github.com/hakanu/gpu_moni.git
+# Install uv if needed: curl -LsSf https://astral.sh/uv/install.sh | sh
+uv tool install --force git+https://github.com/hakanu/gpu_moni.git
 ```
 
-> [!TIP]
-> **Windows Troubleshooting (`Invalid environment at ...\uv\tools\gpu-sentry`)**:
-> If a previous `uv` installation on Windows was interrupted while `gpu-sentry.exe` was running (leaving a partial folder without `Scripts\python.exe`), remove the stale folder and reinstall:
-> ```powershell
-> # PowerShell
-> taskkill /F /IM gpu-sentry.exe 2>$null
-> Remove-Item -Recurse -Force "$env:APPDATA\uv\tools\gpu-sentry" -ErrorAction SilentlyContinue
-> uv tool install --reinstall --force git+https://github.com/hakanu/gpu_moni.git
-> ```
-> Or in **Command Prompt (`cmd.exe`)**:
-> ```cmd
-> taskkill /F /IM gpu-sentry.exe
-> rmdir /s /q "%APPDATA%\uv\tools\gpu-sentry"
-> uv tool install --reinstall --force git+https://github.com/hakanu/gpu_moni.git
-> ```
-
-Or install from a local clone:
-```bash
-git clone https://github.com/hakanu/gpu_moni.git
-cd gpu_moni
-uv tool install --force .
-```
-
-Once installed, the following commands are available globally in your `PATH`:
-- `gpu-sentry` — Launches the GUI dashboard (or automatically falls back to TUI on headless Ubuntu/SSH sessions).
-- `gpu-sentry-tui` — Launches the `bpytop`-inspired Terminal UI directly (ideal for Ubuntu servers, SSH, tmux, and Radeon/ROCm rigs).
-- `gpu-sentry-cli` — CLI alias supporting `--tui`, `--agent`, `--once`, `--update`, etc.
-
-### 2. Update from the Git Repository with `uv`
-
-You can update `gpu-sentry` to the latest commit on `https://github.com/hakanu/gpu_moni.git` at any time using **either** the built-in self-updater flag or `uv` directly:
-
-```bash
-# Option A: Built-in self-updater (runs uv tool install --upgrade --reinstall --force git+https://github.com/hakanu/gpu_moni.git)
-gpu-sentry --update
-# or
-gpu-sentry-tui --update
-
-# Option B: Upgrade via uv tool upgrade
-uv tool upgrade gpu-sentry
-
-# Option C: Force reinstall latest commit directly from GitHub
-uv tool install --upgrade --reinstall --force git+https://github.com/hakanu/gpu_moni.git
-```
+Update anytime with `gpu-sentry --update` (automatically pulls the latest GitHub Release wheel) or `uv tool upgrade gpu-sentry`.
 
 ---
 
-## 🚀 Quick Start
+## ✨ What It Does
 
-### 🐧 Ubuntu & Linux Setup (AMD Radeon / NVIDIA / Intel)
-
-GPU & System Sentry runs natively on **Ubuntu (20.04 / 22.04 / 24.04 / 26.04 LTS)**, Debian, Fedora, Arch Linux, and openSUSE.
-- **TUI & Headless Agent modes (`gpu-sentry-tui`, `gpu-sentry --tui`, `gpu-sentry --agent`)** do **not** require X11/Wayland or GUI libraries and work out of the box on minimal Ubuntu Server and Desktop installations.
-- **GUI mode (`gpu-sentry`)** uses Qt6 (Wayland / X11).
-
-#### 1. Install `uv` (if not already installed)
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-#### 2. Install GPU Sentry via `uv`
-```bash
-uv tool install git+https://github.com/hakanu/gpu_moni.git
-```
-
-#### 3. Launch in Terminal UI (TUI) Mode (Recommended for Ubuntu / SSH / AMD Rigs)
-```bash
-# Interactive bpytop-style Terminal UI
-gpu-sentry-tui
-
-# Or via flag
-gpu-sentry --tui
-
-# Render a single snapshot to stdout and exit (great for scripts/SSH checks)
-gpu-sentry-tui --once
-
-# Render a single snapshot with the Deep Hardware Specs panel open
-gpu-sentry-tui --once --specs
-```
-
-#### 4. Launch Desktop GUI Mode (Optional Qt6 System Libraries)
-If you want to run the desktop GUI window (`gpu-sentry` on X11/Wayland), ensure standard Qt6 runtime libraries are present:
-- **Ubuntu / Debian / Pop!_OS / Linux Mint**:
-  ```bash
-  sudo apt update
-  sudo apt install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0
-  ```
-- **Fedora / RHEL**:
-  ```bash
-  sudo dnf install -y libglvnd-glx libglvnd-egl libxkbcommon-x11 xcb-util-cursor
-  ```
-- **Arch Linux**:
-  ```bash
-  sudo pacman -S --needed qt6-base
-  ```
-
-#### 5. Instant Launch Scripts (`run_tui.sh` / `run.sh`)
-From a cloned repository:
-```bash
-# Launch the Terminal UI directly (auto-provisions .venv via uv if needed)
-./run_tui.sh
-
-# Launch the GUI (or auto-fallback to TUI on headless Linux)
-./run.sh
-```
+| Area | Highlights |
+| :--- | :--- |
+| **Multi-GPU Telemetry** | Native **NVIDIA** (NVML), **AMD** (Windows ADL + zero-dependency Linux `amdgpu` DRM/`hwmon`), **Intel** (`i915`/`xe`), and remote **Apple Silicon** (Metal `ioreg`). Tracks Load, VRAM/GTT, Core/Hotspot/Memory temps, Power vs TDP, Fan RPM/%, Clocks, and active GPU processes. |
+| **CPU, RAM & Deep Specs** | CPU load, per-thread bars, clocks, package temp/wattage, RAM usage + SMBIOS DIMM breakdown (DDR5/DDR4 channels, MT/s, real MHz, XMP/EXPO, voltage), Motherboard/BIOS, PCIe/M.2 slots, and NVMe/SATA drives. |
+| **Flexible Views** | **⚡ Condensed View** (default — everything in one glance), **Full Cards View** (radial gauges + 60s sparklines), **Compact Mode**, **Windows Taskbar Widget** (docks next to the clock), and **24-bit TrueColor TUI** (`gpu-sentry-tui`, auto-fallback over SSH). |
+| **Responsive UI & Settings** | Wrapping toolbars & buttons (`FlowLayout` + `WrapButton`), saved window geometry, **UI Scale (`85%`–`150%`)**, **°C / °F** toggle, autostart, close-to-tray, and **GitHub Releases auto-updater** in **⚙ Settings**. |
+| **Tailscale & LAN GPUs** | Opt-in remote GPU monitoring across your **Tailscale Tailnet** (Linux, macOS, Windows) and **LAN** (`:51920` / LibreHardwareMonitor `:8085`). Click **`🦊 Tailscale: OFF`** or **`🔄 Refresh Tailnet`** whenever you want to scan. |
 
 ---
 
-### 🪟 Windows Setup
+## 🌐 Tailscale & LAN Multi-Machine Setup
 
-#### 1. Direct Install with `uv` (Recommended)
-```powershell
-# Install directly from GitHub without cloning
-uv tool install git+https://github.com/hakanu/gpu_moni.git
+Tailscale scanning is **OFF by default on fresh installs** so the app never surprises you with background SSH probes. To monitor remote GPUs:
 
-# Launch GUI from anywhere
-gpu-sentry
-
-# Or launch Terminal UI in Windows Terminal / PowerShell
-gpu-sentry-tui
-```
-
-> [!TIP]
-> **Windows Start Menu**: On first launch, GPU Sentry automatically creates a Windows Start Menu shortcut (`GPU Sentry`) with its custom icon. You can also run `install_shortcut.bat` or `gpu-sentry --install-shortcut` to generate Start Menu and Desktop shortcuts anytime.
-
-#### 2. Instant Launch (`run.bat` / `run_tui.bat`)
-Double-click `run.bat` (GUI) or `run_tui.bat` (TUI) in the project root to run without installing.
-
----
-
-## 🔴 Native AMD GPU Support on Ubuntu (`amdgpu` + TUI)
-
-GPU Sentry includes a dedicated, zero-dependency Linux DRM & `hwmon` backend (`core/drm_backend.py`) engineered specifically for **AMD Radeon Discrete GPUs** (RDNA 4 / RDNA 3 / RDNA 2 / Vega / Polaris), **AMD Ryzen APUs** (Radeon 780M / 890M / 680M / Vega), and **AMD Instinct accelerators** running the standard Ubuntu `amdgpu` kernel driver—no proprietary SDKs or root privileges required:
-
-1. **Exact AMD Marketing Name Resolution**:
-   - Reads `product_name` from sysfs, matches `(device_id, revision_id)` against Ubuntu's `/usr/share/libdrm/amdgpu.ids` table, cross-references `lspci`, and falls back to a built-in PCI ID map so cards display their exact retail name (e.g. `AMD Radeon RX 7900 XTX`, `AMD Radeon 780M Graphics`).
-2. **Multi-Sensor Thermal Telemetry (`hwmon`)**:
-   - **Edge Temperature (`temp1_input`)**: Primary GPU die temperature with dynamic thermal status badge (`COOL`, `NORM`, `WARM`, `HOT`, `THROT`).
-   - **Junction / Hotspot Temperature (`temp2_input`)**: Displayed live in TUI as `Junc:94°C` and factored into thermal safety alerts.
-   - **VRAM Memory Temperature (`temp3_input`)**: GDDR6 memory junction temperature displayed as `Mem:69°C`.
-   - **Fan Telemetry (`fan1_input` & `pwm1`)**: Live fan speed in both **RPM** and **PWM %** (`🌀1218RPM(29%)`).
-3. **VRAM & Dynamic GTT Memory Tracking**:
-   - Reads dedicated VRAM (`mem_info_vram_used` / `mem_info_vram_total`) and system-backed **GTT (Graphics Translation Table)** memory (`mem_info_gtt_used`), displaying `(GTT:1.9G)` automatically when APUs or LLM workloads allocate shared host memory.
-4. **Power Draw & PPT Cap (`power1_average` / `power1_input` / `power1_cap`)**:
-   - Displays real-time GPU socket/board power in Watts alongside the active PPT power limit (`🔥 327.0W/327W`).
-5. **DPM Clocks (`pp_dpm_sclk`, `pp_dpm_mclk`, `pp_dpm_socclk`)**:
-   - Reads real-time Graphics Shader Clock (`SCLK`), VRAM Memory Clock (`MCLK`), and SoC Clock (`SOCCLK`), plus maximum rated boost clocks.
-6. **Per-Process ROCm Compute & Graphics VRAM Tracking**:
-   - Scans `/proc/<pid>/fd` and `/proc/<pid>/fdinfo` (`drm-total-vram`, `drm-pdev`, `/dev/kfd` `pasid`) to list active `Compute` (e.g. `llama-server`, `ollama`, `vllm`, `strata-host`, PyTorch) and `Graphics` processes and their exact per-process VRAM footprint without requiring `rocm-smi` or `sudo`.
-
-### Example Ubuntu AMD Radeon TUI Output (`gpu-sentry-tui`)
-
-```text
-╭─ ²local gpus (amdgpu) ───────────────────────────────────────────────── 1 GPU ─ VRAM: 23.7/24.0 GB ─ 🔥 327.0W ╮
-│🔴GPU0 AMD Radeon RX 7900 XTX       ⣿⣿⣿⣿⣿⣿⣿⣿ ██████████  100% │  56°C[WARM] Junc:94°C Mem:69°C 🌀1218RPM(29%)   │
-│     RDNA 3 (Samsung) • PCIe Gen4x16        │ VRAM: ████████  23.7/24.0GB(99%) │ 🔥 327.0W/327W │ Clk: 3080/1249MHz (SoC:1285) │
-╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-╭─ ⁴active gpu processes (4/h: specs) ─────────────────────────────────────────────────────── 1 active workloads ╮
-│ PID      PROCESS                        GPU    TYPE        VRAM USED │                                         │
-│ 2722557  strata-host                    GPU0   Compute    24138.9 MB │                                         │
-╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
-
----
-
-## 🌐 Network & Tailscale Tailnet GPU Monitoring
-
-Click **`🌐 Network GPUs`** in the top navigation bar (or press `3` / `s` in `gpu-sentry-tui`) to view and manage GPUs across your **Tailscale Tailnet** and **Local Area Network**:
-
-### 1. Automatic Tailscale Tailnet GPU Discovery
-- Automatically inspects `tailscale status --json`, identifies online Tailnet peers, and probes each node via `gpu-sentry --agent` (`:51920`), `LibreHardwareMonitor` (`:8085`), or agentless Tailscale SSH.
-- Detects **NVIDIA** (`nvidia-smi`), **AMD** (`amdgpu` Linux DRM + `hwmon`), and **Intel** (`i915` / `xe` DRM + `hwmon` / `coretemp`) GPUs across your Tailnet without requiring manual IP configuration.
-
-### 2. Tailnet GPU VRAM, Multi-Sensor Thermals & Wattage
-Both the GUI (`Network GPUs` panel & pinned cards) and the TUI (`gpu-sentry-tui`) highlight three core telemetry metrics for every Tailnet GPU:
-- **🧠 VRAM Usage & Pressure**:
-  - Dedicated VRAM Used vs. Total GB, utilization percentage, and visual memory bar (e.g., `VRAM ■■■■■■ 23.0 / 24.0 GB (96%)` on a remote **AMD Radeon RX 7900 XTX** or **NVIDIA RTX** node).
-  - Aggregated **Tailnet Total VRAM** (`Tailnet VRAM: 33.7 / 42.0 GB`) in the section header.
-- **🌡️ Multi-Sensor GPU Thermals**:
-  - **Edge / Core Temperature (`°C`)** with color-coded safety badge (`COOL`, `NORMAL`, `WARM`, `HOT`, `THROTTLE`).
-  - **Hotspot / Junction Temperature (`Junc: 84°C`)** (`temp2_input` on AMD RDNA / NVIDIA Hotspot).
-  - **VRAM Memory Temperature (`Mem: 80°C`)** (`temp3_input` on GDDR6/GDDR6X).
-  - **Fan Speed (`🌀 1613 RPM` / `%`)** and **Peak Tailnet GPU Temperature** summary in the header.
-- **🔥 Wattage & Power Limits**:
-  - Real-time GPU board power draw in Watts alongside the configured TDP power limit (`🔥 341.0 / 327 W`).
-  - Aggregated **Total Tailnet GPU Wattage** (`🔥 371.1 W`) across all active Tailnet GPUs.
-
-### 3. LAN Auto-Discovery, Agentless SSH & LibreHardwareMonitor
-1. **Automatic LAN Discovery (`GPU Sentry` / `gpu-sentry --agent`)**:
-   - Every machine running GPU Sentry serves live JSON telemetry on TCP port `51920` (`/api/telemetry`) and responds to UDP LAN discovery broadcasts on port `51921`.
-   - For headless Linux/Windows servers without a monitor, run:
-     ```bash
-     gpu-sentry --agent
-     # Or specify a custom port:
-     gpu-sentry --agent --port 51920
+1. Click **`🦊 Tailscale: OFF`** or **`🔄 Refresh Tailnet`** in the top bar, Condensed view, or System Tray (or press `t` / `r` in `gpu-sentry-tui`).
+2. Remote machines are discovered automatically via:
+   - **Linux & macOS (Agentless SSH)**: Requires passwordless SSH (`BatchMode=yes`). On macOS (e.g. Mac mini), enable **System Settings → General → Sharing → Remote Login** and copy your SSH key once:
+     ```powershell
+     type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh <mac_user>@hakumacmini "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
      ```
-2. **Agentless SSH Monitoring (`SSH (nvidia-smi / amdgpu / drm)`)**:
-   - Select **`SSH Agentless`** in the Network GPUs card, enter `user@hostname` (or a Tailscale MagicDNS name), and click **`➕ Connect Node`**.
-3. **LibreHardwareMonitor / OpenHardwareMonitor Web Server (`:8085`)**:
-   - Select **`LibreHardwareMonitor (:8085)`** and enter `host:8085` to poll remote Windows PCs running LibreHardwareMonitor's HTTP server.
-4. **Full Dashboard Cards**:
-   - Toggle **`📌 Show as Full GPU Cards`** to display remote Tailnet/LAN GPUs directly in the main GUI dashboard with 60-second rolling temperature & utilization sparklines and radial arc gauges.
+   - **Any OS (Headless Agent, No SSH needed)**: Run `gpu-sentry --agent` on the remote machine (listens on HTTP `:51920` + UDP `:51921`).
+   - **Windows (LibreHardwareMonitor)**: Automatically detects LHM web server on `:8085`.
 
 ---
 
-## 🧬 Deep Hardware & SMBIOS Specifications
+## ⌨️ CLI Commands
 
-Click **`🧬 Hardware Specs`** in the top navigation bar (or press `4` / `h` in `gpu-sentry-tui`, or run `gpu-sentry-tui --once --specs`) to inspect low-level machine specifications:
-
-- **🧠 Memory & Channels**: Total installed & max board capacity, Dual/Quad-Channel mode (`1 DPC • 2 DIMMs`), active configured MT/s & real DRAM clock (MHz), JEDEC base clock, XMP/EXPO rated profile decoded from module part numbers, voltage, and a **Per-Slot Physical DIMM Table** (works without root on Ubuntu via `/run/udev/data/+dmi:id`).
-- **🎛️ Motherboard, BIOS & Slots**: Board manufacturer, model, revision, serial number, BIOS vendor/version/date, UEFI & Secure Boot state, and SMBIOS Type 9 PCIe & M.2 slot map (`In Use` vs `Available`).
-- **💻 Processor (CPU)**: Full model name, stepping identifier, socket, Base / Boost / BCLK clocks, core VID, L1/L2/L3 cache sizes, virtualization status, and ISA feature flags.
-- **⚡ GPU Deep Specs**: Architecture codename, compute units / CUDA core counts, dedicated VRAM, TDP power limits, current vs. max PCIe generation/width, max boost clocks, driver version, VBIOS version, and hardware UUID.
-- **💽 NVMe / SATA Storage & OS**: Physical disk models, NVMe/SATA bus interface, capacity, firmware revision, serial numbers, partition usage, OS build, and kernel uptime.
-- **📋 Copy Hardware Report**: Copies a formatted Markdown report of all system specifications to your clipboard in one click.
-
----
-
-## ⌨️ Command Line Usage
-
-| Command | Description |
-|---|---|
-| `gpu-sentry` | Launches the GUI dashboard in **⚡ Very Condensed View** (auto-falls back to TUI on headless Linux/SSH) |
-| `gpu-sentry --condensed` | Explicitly launches the GUI in **⚡ Very Condensed View of Everything** mode (default) |
-| `gpu-sentry --expanded` | Launches the GUI in **Expanded Full-Cards** mode (with radial gauges & 60s sparklines) |
-| `gpu-sentry --no-tailscale` | Starts GUI or TUI with Tailscale-based GPU discovery & polling turned **OFF** |
-| `gpu-sentry --tailscale` | Starts GUI or TUI with Tailscale-based GPU discovery & polling turned **ON** |
-| `gpu-sentry-tui` / `gpu-sentry --tui` | Launches the **`bpytop`-inspired Terminal UI (TUI)** directly in your terminal |
-| `gpu-sentry-tui --once` | Renders one TUI telemetry snapshot to stdout and exits |
-| `gpu-sentry-tui --once --specs` | Renders one TUI snapshot with the **Deep Hardware & SMBIOS Specs** panel open |
-| `gpu-sentry --update` / `gpu-sentry-tui -u` | Self-updates `gpu-sentry` via `uv` from `git+https://github.com/hakanu/gpu_moni.git` |
-| `gpu-sentry --version` / `-v` | Displays current package version and git revision |
-| `gpu-sentry --help` / `-h` | Shows CLI usage and options |
-| `./run_tui.sh` / `run_tui.bat` | Launches the `bpytop`-inspired TUI on Linux or Windows in one click |
-| `gpu-sentry --minimized` | Starts GUI silently in background (Taskbar widget & system tray only) |
-| `gpu-sentry --agent` | Runs as a headless LAN telemetry agent (`HTTP :51920` + `UDP :51921`, no GUI required) |
-| `gpu-sentry --agent --port 51925` | Runs headless LAN telemetry agent on a custom TCP port |
-| `gpu-sentry --install-shortcut` | Creates Windows Start Menu shortcut (`GPU Sentry`) or Linux `.desktop` entry |
-| `gpu-sentry --install-shortcut --desktop` | Creates both Start Menu / App Launcher and Desktop shortcuts |
-| `gpu-sentry --remove-shortcut` | Removes desktop & Start Menu shortcuts |
-| `gpu-sentry --autostart` | Enables launching automatically on Windows/Linux system login |
-| `gpu-sentry --no-autostart` | Disables system login autostart |
-
-### 🖥️ `bpytop`-Inspired Terminal UI (TUI)
-
-Prefer a pure terminal monitor over SSH, tmux, Ubuntu Server, or Windows Terminal? Run:
-```bash
-gpu-sentry-tui
-# or:
-gpu-sentry --tui
-```
-
-```text
-╭─ 🌐 Tailnet & LAN GPUs ─ 6/6 Online ─ 6 GPUs ─ Tailnet VRAM: 33.7/42.0GB • 🔥 371.1W • 🌡 Peak 59°C ──────────────╮
-│● hakuxtx   AMD Radeon RX 7900 XTX    Load █████ 100% │ VRAM ██████ 23.0/24.0GB(96%) │ 59°C[NORM] Junc:84°C Mem:80°C 🌀1613RPM │ 🔥341.0/327W │
-│● gmk       AMD Radeon 780M Graphics  Load ░░░░░   0% │ VRAM ████░░ 10.7/16.0GB(67%) │ 35°C[COOL]                            │ 🔥  4.1W     │
-│● mininas   AMD Radeon Barcelo        Load ░░░░░   0% │ VRAM ░░░░░░  0.0/ 2.0GB( 2%) │ 40°C[COOL]                            │ 🔥 26.0W     │
-│● leno      Intel UHD Graphics 630    Load ░░░░░   0% │ VRAM ░░░░░░     Shared iGPU  │ 43°C[COOL]                            │ 🔥  --W      │
-│● anneleno  Intel UHD Graphics 630    Load ░░░░░   0% │ VRAM ░░░░░░     Shared iGPU  │ 40°C[COOL]                            │ 🔥  --W      │
-│● nashaku   Intel Xeon E3-1200 v3 GPU Load ░░░░░   0% │ VRAM ░░░░░░     Shared iGPU  │ 59°C[NORM]                            │ 🔥  --W      │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-```
-
-- **24-bit TrueColor ANSI Gradients & Unicode Braille Sparklines** (`⣀⣄⣤⣦⣶⣷⣿`).
-- **Interactive Hotkeys**:
-  - `1`: Show/Hide CPU, Per-Core Grid & System RAM (with DDR5 Channel/MHz badges)
-  - `2`: Show/Hide Local GPUs (NVIDIA `nvml`, AMD `amdgpu`, Intel `i915`/`xe`)
-  - `3`: Show/Hide Tailscale Tailnet & LAN GPUs
-  - `4` / `h`: Toggle bottom panel between **Active GPU Processes** and **Deep SMBIOS Hardware Specifications**
-  - `t`: Toggle Tailscale monitoring `ON` or `OFF`
-  - `r` / `s`: Force immediate full **Re-Scan** of Tailscale Tailnet & LAN for newly connected GPU machines
-  - `+` / `-`: Increase / decrease refresh rate (`250ms` – `3000ms`)
-  - `p` / `Space`: Pause / Resume telemetry
-  - `q` / `Esc`: Quit cleanly
-- **Ultra-Low TUI Resource Footprint** (bypasses `PyQt6` completely in `--tui` mode):
-
-| Metric | Measured Value |
-|---|---|
-| **Average CPU Usage** (`1000 ms` refresh) | **`0.05%`** across logical cores |
-| **Private Memory (RAM)** | **`~38.0 MB`** (`~52.2 MB` Working Set / RSS) |
-| **Local Poll + Frame Render Latency** | **`~5.4 ms`** per tick (`NVML`/`DRM` + `SMBIOS` + `ANSI` render) |
+| Command / Flag | Description |
+| :--- | :--- |
+| `gpu-sentry` | Launch GUI (falls back to TUI automatically on headless Linux/SSH) |
+| `gpu-sentry-tui` / `gpu-sentry --tui` | Launch `bpytop`-style Terminal UI (`~38 MB` RAM, no PyQt6 loaded) |
+| `gpu-sentry --once` | Print a single TUI snapshot to stdout and exit |
+| `gpu-sentry --condensed` / `--expanded` | Force Very Condensed View or Full Cards View |
+| `gpu-sentry --tailscale` / `--no-tailscale` | Start with Tailscale GPU discovery ON or OFF |
+| `gpu-sentry --agent [--port 51920]` | Run as a headless LAN/Tailnet telemetry server |
+| `gpu-sentry --minimized` | Start minimized to system tray & taskbar widget |
+| `gpu-sentry --update` | Self-update from GitHub Releases / `uv` |
+| `gpu-sentry --install-shortcut [--desktop]` | Install Start Menu (or Linux `.desktop`) shortcut |
+| `gpu-sentry --autostart` / `--no-autostart` | Enable or disable launch on system login |
 
 ---
 
-## 💡 Tips & Desktop Integration
+## ⚠️ Windows, Tailscale & SSH Quirks
 
-### 🪟 Windows Taskbar Widget
-- **Dock Next to Clock**: Right-click the taskbar widget and select **`📌 Dock Next to Clock`** to automatically re-center the widget directly adjacent to the Windows notification tray.
-- **Drag & Reposition**: Click and drag the widget anywhere on the taskbar or desktop. Right-click and choose **`🔒 Lock Position`** to freeze it in place.
-- **Screen & Multi-Monitor Switching (`Win + Left / Right`)**:
-  - Stays on top of both primary (`Shell_TrayWnd`) and secondary (`Shell_SecondaryTrayWnd`) taskbars even during Aero Snap (`Win + Left / Right`), Snap Assist, or multi-monitor window movement.
-  - Uses `WS_EX_NOACTIVATE` and focus rejection so pressing `Win + Left / Right` always snaps your active application window and never hijacks the widget.
-- **Virtual Desktops (`Win + Ctrl + Left / Right`)**:
-  - Automatically registered with Windows Virtual Desktop Manager (`IVirtualDesktopPinnedApps`), keeping the widget visible across all virtual desktops.
+<details>
+<summary><b>Why did small terminal windows flash on Windows during Tailscale scan?</b></summary>
 
-### 🪟 Windows Start Menu & Autostart
-- **Start Menu**: Integrates with Windows via native `IShellLinkW` COM and appears in the Windows Start Menu and Windows Search with its custom icon.
-- **Start on Windows Boot**: Right-click the tray icon or taskbar widget and toggle **`🚀 Start on Windows Boot`**.
+Windows OpenSSH (`C:\Windows\System32\OpenSSH\ssh.exe`) has a known quirk: when a GUI (`--windowed` / `pythonw.exe`) app spawns `ssh.exe` with `CREATE_NO_WINDOW`, OpenSSH sees no attached console and calls `AllocConsole()`, briefly flashing a black terminal window for each peer.
 
-### 🐧 Linux Wayland & System Tray
-- **GNOME Shell System Tray**: On GNOME, install the [AppIndicator and KStatusNotifierItem Support](https://extensions.gnome.org/extension/615/appindicator-support/) GNOME extension so system tray icons appear in the top bar.
-- **KDE Plasma & XFCE**: System tray icons and floating tool windows work natively out of the box.
+**How GPU Sentry prevents this**:
+1. Tailscale scanning is **OFF by default** on fresh installations (opt-in via **`🔄 Refresh Tailnet`**).
+2. SSH probes pass `-T -n`, `SSH_ASKPASS_REQUIRE=never`, and `STARTUPINFO(STARTF_USESHOWWINDOW, SW_HIDE)` *without* `CREATE_NO_WINDOW`, giving `ssh.exe` a hidden console handle so no window flashes.
+</details>
 
----
+<details>
+<summary><b>Why isn't my Mac mini / Linux Tailnet machine showing up?</b></summary>
 
-## 🏗️ Architecture
+- Click **`🔄 Refresh Tailnet`** to clear cached probe states and re-scan.
+- Agentless SSH uses `BatchMode=yes` (non-interactive). If you see `Permission denied (publickey,password,keyboard-interactive)`, copy your SSH public key to `~/.ssh/authorized_keys` on the remote machine, or run `gpu-sentry --agent` on it.
+- Note: The macOS App Store edition of Tailscale does not support running a Tailscale SSH server — use macOS **Remote Login** + SSH keys, or `gpu-sentry --agent`.
+- If the remote username differs from `hakanu`, your local username, or `root`, add `<user>@<host>` once in the **Network GPUs** panel.
+</details>
 
-```
-gpu_moni/
-├── assets/
-│   ├── gpu_sentry.ico             # High-res Windows application & shortcut icon
-│   ├── gpu_sentry.png             # High-res Linux desktop entry icon
-│   └── screenshot.png             # Dashboard preview
-├── core/
-│   ├── gpu_types.py               # Data classes (HostMetrics, CpuMetrics, RamMetrics, GpuDevice, GpuMetrics)
-│   ├── drm_backend.py             # Native Linux DRM (amdgpu, radeon, i915, xe) + hwmon + fdinfo GPU backend
-│   ├── nvml_backend.py            # Direct C ctypes wrapper for NVIDIA nvml.dll / libnvidia-ml.so
-│   ├── adl_backend.py             # Direct C ctypes wrapper for Windows AMD atiadlxx.dll / ADL2 PMLog
-│   ├── dxgi_backend.py            # DXGI adapter enumerator & PDH memory counters (Windows)
-│   ├── host_backend.py            # Cross-platform CPU & RAM telemetry (hwmon, k10temp, RAPL, psutil, ADL)
-│   ├── hardware_info.py           # Native SMBIOS 3.6 parser, udev DMI reader, CPUID & Storage inspector
-│   ├── network_telemetry.py       # Tailnet/LAN discovery, HTTP/UDP telemetry server, SSH & LHM client
-│   ├── monitor_worker.py          # Asynchronous QThread background telemetry engine (Windows & Linux)
-│   ├── updater.py                 # Self-updater via uv tool install from Git repository
-│   └── shortcut.py                # Native COM Start Menu shortcut & login autostart manager
-├── ui/
-│   ├── tui_dashboard.py           # Pure-terminal 24-bit ANSI bpytop-style TUI dashboard
-│   ├── theme.py                   # Dark cyberpunk / Fluent modern QSS & palette
-│   ├── widgets/
-│   │   ├── taskbar_widget.py      # Floating/dockable taskbar telemetry widget next to clock
-│   │   ├── cpu_ram_card.py        # Dedicated CPU & RAM card with per-thread breakdown & SMBIOS badges
-│   │   ├── gpu_card.py            # Responsive individual GPU telemetry card (local & remote)
-│   │   ├── network_nodes_card.py  # LAN & Tailnet GPU thermal monitor & node manager
-│   │   ├── hardware_specs_card.py # Deep hardware specifications viewer & Markdown report exporter
-│   │   ├── arc_gauge.py           # Antialiased radial circular gauge for load %
-│   │   ├── sparkline.py           # 60-second real-time dual-metric rolling sparkline chart
-│   │   └── thermal_bar.py         # Gradient thermal bar & status badge
-│   └── main_window.py             # Main window with summary ribbon, controls, system tray
-├── .github/
-│   └── workflows/
-│       └── ci.yml                 # Multi-OS automated build & validation workflow
-├── pyproject.toml                 # Modern PEP 621 packaging for uv tool install & pip
-├── main.py                        # Desktop application, TUI fallback & headless agent entry point
-├── run.sh                         # Instant Linux GUI/TUI launcher
-├── run_tui.sh                     # Instant Linux TUI launcher (auto-provisions via uv)
-├── run.bat                        # Instant Windows GUI launcher (silent pythonw)
-├── run_tui.bat                    # Instant Windows TUI launcher
-├── install_shortcut.bat           # 1-click Start Menu & Desktop shortcut installer
-└── requirements.txt               # Minimal dependencies (PyQt6, psutil)
-```
+<details>
+<summary><b>Windows `uv tool` console shim, file locks & virtual desktops</b></summary>
+
+- **No background terminal**: The standalone Windows `.exe` from GitHub Releases is a `WINDOWS_GUI` binary. For `uv tool` installs, `gpu-sentry` is a console shim so `gpu-sentry --tui` works in PowerShell; Windows shortcuts & autostart automatically use `pythonw.exe` (and GUI launches detach any auto-spawned console via `FreeConsole()`).
+- **Virtual Desktops**: The main dashboard stays strictly on the virtual desktop where you open it (any legacy app-wide virtual desktop pin is automatically cleared on startup).
+- **Updating on Windows**: The standalone `.exe` self-updates cleanly in place. If using `uv tool` on Windows while the app is running, exit from the tray or run `taskkill /F /IM gpu-sentry.exe 2>$null` before upgrading.
+</details>
 
 ---
 
-## ❓ FAQ & Troubleshooting
-
-### Q1: On Windows, `uv tool install` fails with `error: Invalid environment at C:\Users\<user>\AppData\Roaming\uv\tools\gpu-sentry: missing Python executable at ...\Scripts\python.exe`
-**Why this happens**: On Windows, if `gpu-sentry.exe` (or its tray/taskbar widget) is still running in the background while an uninstall or upgrade runs—or if the base Python installation referenced by the tool venv was updated—Windows locks `python.exe` and leaves behind a partial `uv\tools\gpu-sentry` folder.
-
-**Fix (PowerShell)**:
-```powershell
-taskkill /F /IM gpu-sentry.exe 2>$null
-taskkill /F /IM gpu-sentry-tui.exe 2>$null
-Remove-Item -Recurse -Force "$env:APPDATA\uv\tools\gpu-sentry" -ErrorAction SilentlyContinue
-uv tool install --reinstall --force git+https://github.com/hakanu/gpu_moni.git
-```
-
-**Fix (Command Prompt / `cmd.exe`)**:
-```cmd
-taskkill /F /IM gpu-sentry.exe
-taskkill /F /IM gpu-sentry-tui.exe
-rmdir /s /q "%APPDATA%\uv\tools\gpu-sentry"
-uv tool install --reinstall --force git+https://github.com/hakanu/gpu_moni.git
-```
-
-### Q2: How does auto-updating work on Windows vs Linux?
-- **Standalone Windows GUI `.exe` (`%LOCALAPPDATA%\GPUSentry\gpu-sentry.exe`)**: Checks GitHub Releases automatically on startup (configurable under **⚙ Settings → Updates**), downloads the latest release asset, verifies its SHA256 against `SHA256SUMS.txt`, waits for both the app and PyInstaller bootloader parent to exit, atomically swaps the `.exe`, clears `_PYI_*` env vars, and relaunches silently.
-- **Linux / `uv tool` installs**: Click **⚙ Settings → Updates** in the GUI or run `gpu-sentry --update` in a terminal — it automatically pulls the latest GitHub Release `.whl` (falling back to `git+https://github.com/hakanu/gpu_moni.git`) via `uv tool install --upgrade --reinstall --force`. *(On Windows `uv tool` installs, close GPU Sentry from the system tray or run `taskkill /F /IM gpu-sentry.exe 2>$null` first so Windows releases the file lock.)*
-
-### Q3: How do I turn off Tailscale GPU scanning/polling if I only want local GPUs?
-- **In the GUI**: Click the **`🦊 Tailscale: ON`** button in the top navigation bar (it turns into **`🦊 Tailscale: OFF`** and remembers your choice across restarts). You can also toggle individual remote machines `ON` or `OFF` inside the Network GPUs panel.
-- **In the TUI (`gpu-sentry-tui`)**: Press `t` at any time to toggle Tailscale monitoring `ON` or `OFF`.
-- **Via CLI**: Launch with `gpu-sentry --no-tailscale` (or `gpu-sentry-tui --no-tailscale`).
-
-### Q4: How do I switch between the default Very Condensed View and the Full Cards View (with circular gauges & 60s sparklines)?
-- **In the GUI**: Click the **`⚡ Condensed`** button in the top navigation bar (or toggle **`⚡ Very Condensed View`** in the system tray menu).
-- **Via CLI**: Run `gpu-sentry --expanded` for Full Cards or `gpu-sentry --condensed` for the Condensed View.
-
-### Q5: Why is a machine on my Tailnet (like a Mac mini or Linux box) not showing up, or how do I refresh?
-- **Enable & Refresh Tailnet**: Tailscale auto-scanning is **OFF by default on fresh installs**. Click **`🦊 Tailscale: OFF`** or **`🔄 Refresh Tailnet`** in the top bar, Condensed view, or System Tray menu (or press `r` in the TUI). This clears probed peer caches and triggers an immediate parallel probe of all online Tailnet and LAN machines.
-- **Passwordless SSH is required for agentless macOS/Linux discovery**:
-  - GPU Sentry probes SSH peers non-interactively (`ssh -T -n -o BatchMode=yes`), so it **cannot prompt for a password**. If a peer (such as an Apple Silicon Mac mini) returns `Permission denied (publickey,password,keyboard-interactive)`, either:
-    1. **Copy your SSH public key** to the remote machine (one-time setup):
-       ```powershell
-       # From Windows PowerShell (replace <mac_user> and <host>, e.g. hakumacmini)
-       type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh <mac_user>@hakumacmini "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
-       ```
-       *(Note: The macOS App Store edition of Tailscale does not support running a Tailscale SSH server — enable **System Settings → General → Sharing → Remote Login** and use SSH keys instead, or install the standalone Tailscale CLI.)*
-    2. **Or run the headless GPU Sentry agent** on the remote machine (`gpu-sentry --agent`, port `51920`) — no SSH keys required.
-  - For **Windows** remote hosts: run `gpu-sentry --agent` (port `51920`) or `LibreHardwareMonitor` with its web server enabled (port `8085`).
-- **Custom username / DNS name**: Auto-discovery probes common usernames (`hakanu`, your local username, `root`). If your macOS/Linux machine uses a different username, add `<user>@<host>` once in the **Network GPUs** panel. Hostnames with spaces or apostrophes (e.g. `hakumacmini’s Mac mini`) are automatically resolved to their clean MagicDNS name (`hakumacmini`).
-
-### Q6: Windows Quirks — Flashing Terminal Windows, Virtual Desktops, & GUI vs Console Shims
-- **Why did small black terminal windows briefly flash on Windows when Tailscale scanning ran?**
-  - This is a known **Windows OpenSSH (`C:\Windows\System32\OpenSSH\ssh.exe`) quirk**: when a Windows GUI (`--windowed` / `pythonw.exe`) app spawns `ssh.exe` with `CREATE_NO_WINDOW` (meaning no console is attached), Win32-OpenSSH calls `AllocConsole()` internally, which flashes a brief visible console window for every peer being probed.
-  - **How GPU Sentry handles it**:
-    1. Tailscale scanning is **OFF by default** on fresh installations (opt-in via **`🦊 Tailscale: OFF`** or **`🔄 Refresh Tailnet`**).
-    2. When probing over SSH on Windows, GPU Sentry passes `-T -n`, `SSH_ASKPASS_REQUIRE=never`, and `STARTUPINFO(STARTF_USESHOWWINDOW, SW_HIDE)` **without** `CREATE_NO_WINDOW`, giving `ssh.exe` a hidden console handle so it never flashes a visible window.
-- **Why did a background terminal stay open in older versions?**
-  - `uv tool install` exposes `gpu-sentry.exe` as a console (`WINDOWS_CUI`) shim so `gpu-sentry --tui` works in PowerShell/CMD. Starting in `v1.2.0`, Windows shortcuts & autostart automatically use `pythonw.exe` (or the standalone `WINDOWS_GUI` `.exe` from GitHub Releases), and GUI launches detach any auto-spawned console via `FreeConsole()`.
-- **Dashboard showing on every Windows Virtual Desktop**:
-  - Older versions called Windows' `IVirtualDesktopPinnedApps::PinAppID` on the entire process AppUserModelID, which pinned both the taskbar widget and the main dashboard across all virtual desktops. Starting in `v1.2.0`, GPU Sentry explicitly unpins the AppID on startup so the main dashboard stays strictly on the virtual desktop where you open it.
-
----
-
-## 🛠️ Development & Packaging
-
-Building, installing, and updating with [uv](https://docs.astral.sh/uv/):
+## 🛠️ Development
 
 ```bash
-# Clone the repository
 git clone https://github.com/hakanu/gpu_moni.git
 cd gpu_moni
-
-# Install globally as an isolated uv tool from local checkout
-uv tool install --force .
-
-# Or install/upgrade directly from GitHub
-uv tool install --upgrade --reinstall git+https://github.com/hakanu/gpu_moni.git
-
-# Or self-update at any time using the built-in updater
-gpu-sentry --update
-
-# Run TUI or GUI during development
-uv run gpu-sentry-tui
-uv run gpu-sentry
-
-# Build source distribution and wheel
-uv build
+uv run python main.py          # Run GUI
+uv run python main.py --tui    # Run TUI
+uv build                       # Build wheel & sdist
 ```
+
+Pushing a `v*` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds and publishes `gpu-sentry-windows-x64.exe`, `.zip`, `.whl`, `.tar.gz`, and `SHA256SUMS.txt` to GitHub Releases.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).
