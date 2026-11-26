@@ -1,2 +1,2 @@
 """GPU Sentry Core Telemetry & Hardware Backends."""
-__version__ = "1.1.4"
+from core.version import APP_VERSION as __version__

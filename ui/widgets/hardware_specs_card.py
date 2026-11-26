@@ -20,6 +20,8 @@ from PyQt6.QtGui import QColor
 from core.gpu_types import GpuDevice
 from core.hardware_info import SystemHardwareSpecs, HardwareInfoCollector
 from ui.theme import Theme
+from ui.widgets.flow_layout import FlowLayout
+from ui.widgets.wrap_button import WrapButton
 
 
 class HardwareSpecsCard(QFrame):
@@ -52,9 +54,12 @@ class HardwareSpecsCard(QFrame):
         self.main_layout.setContentsMargins(18, 16, 18, 16)
         self.main_layout.setSpacing(14)
 
-        # 1. Header Row
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(10)
+        # 1. Header Row (Title + Wrapping Action Controls)
+        header_wrapper = QVBoxLayout()
+        header_wrapper.setSpacing(8)
+
+        title_row = QHBoxLayout()
+        title_row.setSpacing(10)
 
         self.lbl_badge = QLabel("HARDWARE SPECS")
         self.lbl_badge.setStyleSheet(f"""
@@ -67,16 +72,18 @@ class HardwareSpecsCard(QFrame):
             font-weight: 800;
             letter-spacing: 0.5px;
         """)
-        header_layout.addWidget(self.lbl_badge)
+        title_row.addWidget(self.lbl_badge)
 
         self.lbl_title = QLabel("Deep System Architecture & Hardware Specifications")
-        self.lbl_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #ffffff;")
-        header_layout.addWidget(self.lbl_title)
+        self.lbl_title.setWordWrap(True)
+        self.lbl_title.setStyleSheet("font-size: 15px; font-weight: 700; color: #ffffff;")
+        title_row.addWidget(self.lbl_title, stretch=1)
+        header_wrapper.addLayout(title_row)
 
-        header_layout.addStretch()
+        actions_flow = FlowLayout(margin=0, h_spacing=8, v_spacing=6)
 
         # Copy Full Report Button
-        self.btn_copy = QPushButton("📋 Copy Hardware Report")
+        self.btn_copy = WrapButton("📋 Copy Hardware Report")
         self.btn_copy.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Theme.BG_PANEL};
@@ -93,10 +100,10 @@ class HardwareSpecsCard(QFrame):
             }}
         """)
         self.btn_copy.clicked.connect(self._copy_report)
-        header_layout.addWidget(self.btn_copy)
+        actions_flow.addWidget(self.btn_copy)
 
         # Refresh Button
-        self.btn_refresh = QPushButton("🔄 Rescan")
+        self.btn_refresh = WrapButton("🔄 Rescan")
         self.btn_refresh.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Theme.BG_PANEL};
@@ -113,10 +120,10 @@ class HardwareSpecsCard(QFrame):
             }}
         """)
         self.btn_refresh.clicked.connect(self.refresh_specs)
-        header_layout.addWidget(self.btn_refresh)
+        actions_flow.addWidget(self.btn_refresh)
 
         # Collapse / Expand Toggle
-        self.btn_toggle = QPushButton("▲ Collapse")
+        self.btn_toggle = WrapButton("▲ Collapse")
         self.btn_toggle.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Theme.BG_PANEL};
@@ -132,9 +139,10 @@ class HardwareSpecsCard(QFrame):
             }}
         """)
         self.btn_toggle.clicked.connect(self.toggle_expanded)
-        header_layout.addWidget(self.btn_toggle)
+        actions_flow.addWidget(self.btn_toggle)
 
-        self.main_layout.addLayout(header_layout)
+        header_wrapper.addLayout(actions_flow)
+        self.main_layout.addLayout(header_wrapper)
 
         # Collapsible Body Container
         self.body_widget = QWidget()
@@ -148,25 +156,23 @@ class HardwareSpecsCard(QFrame):
         divider.setStyleSheet(f"background-color: {Theme.BORDER_DEFAULT}; max-height: 1px;")
         self.body_layout.addWidget(divider)
 
-        # Category Filter Bar
-        filter_row = QHBoxLayout()
-        filter_row.setSpacing(8)
+        # Category Filter Bar (FlowLayout so pills wrap cleanly)
+        filter_row = FlowLayout(margin=0, h_spacing=8, v_spacing=6)
         categories = [
             ("all", "🔭 All Subsystems"),
-            ("ram", "🧠 RAM & DIMM Slots"),
-            ("mobo", "🎛️ Motherboard, BIOS & Slots"),
-            ("cpu", "💻 CPU, Clocks & Cache"),
+            ("ram", "🧠 RAM & DIMMs"),
+            ("mobo", "🎛️ Motherboard & BIOS"),
+            ("cpu", "💻 CPU & Cache"),
             ("gpu", "⚡ GPU Deep Specs"),
-            ("storage", "💽 NVMe / SATA & OS"),
+            ("storage", "💽 Storage & OS"),
         ]
         for key, label in categories:
-            btn = QPushButton(label)
+            btn = WrapButton(label)
             btn.setCheckable(True)
             btn.setChecked(key == "all")
             btn.clicked.connect(lambda checked, k=key: self._set_filter(k))
             self.filter_buttons[key] = btn
             filter_row.addWidget(btn)
-        filter_row.addStretch()
         self._update_filter_button_styles()
         self.body_layout.addLayout(filter_row)
 

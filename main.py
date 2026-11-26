@@ -8,13 +8,54 @@ import sys
 import time
 import ctypes
 
+from core.version import APP_NAME, APP_VERSION, WINDOWS_APP_ID
+
+
+def get_resource_path(relative_path: str) -> str:
+    """Resolves bundled asset paths for both source and PyInstaller frozen builds."""
+    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_dir, relative_path)
+
+
+def detach_unwanted_console():
+    """
+    On Windows GUI launches, prevents an empty background terminal window from
+    staying open when launched via a CUI shim or double-clicked python.exe.
+    Preserves the console if launched interactively from an existing shell
+    (GetConsoleProcessList > 1).
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        kernel32 = ctypes.windll.kernel32
+        user32 = ctypes.windll.user32
+        console_hwnd = kernel32.GetConsoleWindow()
+        if console_hwnd:
+            pids = (ctypes.c_uint32 * 4)()
+            count = kernel32.GetConsoleProcessList(pids, 4)
+            if count <= 1:
+                user32.ShowWindow(console_hwnd, 0)  # SW_HIDE
+                kernel32.FreeConsole()
+                devnull = open(os.devnull, "w", encoding="utf-8")
+                sys.stdout = devnull
+                sys.stderr = devnull
+    except Exception:
+        pass
+
+    try:
+        if sys.stdout is None:
+            sys.stdout = open(os.devnull, "w", encoding="utf-8")
+        if sys.stderr is None:
+            sys.stderr = open(os.devnull, "w", encoding="utf-8")
+    except Exception:
+        pass
+
 
 def set_windows_app_id():
     """Sets the Windows Application User Model ID for taskbar grouping and icon."""
     if sys.platform == "win32":
         try:
-            app_id = "antigravity.gpusentry.monitor.1.0"
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_ID)
         except Exception:
             pass
 
@@ -107,7 +148,7 @@ def main():
         print_help("gpu-sentry")
         return
 
-    if "--version" in sys.argv or "-v" in sys.argv:
+    if "--version" in sys.argv or "-v" in sys.argv or "-V" in sys.argv:
         from core.updater import get_version_string
         print(get_version_string())
         return
@@ -157,12 +198,28 @@ def main():
         run_tui()
         return
 
-    # Auto-create Windows Start Menu shortcut on first launch
+    # GUI mode: detach any auto-spawned console window before launching Qt
+    detach_unwanted_console()
+
+    # Load user settings early so UI scale can be applied before QApplication init
+    from core.settings import get_settings
+    app_settings = get_settings()
+    scale_pct = int(app_settings.data.ui_scale_percent or 100)
+    if scale_pct != 100 and "QT_SCALE_FACTOR" not in os.environ:
+        clamped = max(75, min(200, scale_pct))
+        os.environ["QT_SCALE_FACTOR"] = f"{clamped / 100.0:.2f}"
+
+    # Auto-create or refresh Windows Start Menu & Autostart entries (console-free launcher)
     if sys.platform == "win32":
         try:
-            from core.shortcut import is_start_menu_shortcut_installed, install_start_menu_shortcut
+            from core.shortcut import (
+                is_start_menu_shortcut_installed,
+                install_start_menu_shortcut,
+                refresh_autostart_if_enabled,
+            )
             if not is_start_menu_shortcut_installed():
                 install_start_menu_shortcut(desktop=False)
+            refresh_autostart_if_enabled(start_minimized=app_settings.data.autostart_minimized)
         except Exception:
             pass
 
@@ -181,11 +238,13 @@ def main():
         )
 
     app = QApplication(sys.argv)
-    app.setApplicationName("GPU Sentry")
+    app.setApplicationName(APP_NAME)
+    app.setApplicationVersion(APP_VERSION)
     app.setOrganizationName("Antigravity")
+    app.setQuitOnLastWindowClosed(False)
 
     # Global application icon
-    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "gpu_sentry.ico")
+    icon_path = get_resource_path(os.path.join("assets", "gpu_sentry.ico"))
     if os.path.isfile(icon_path):
         app.setWindowIcon(QIcon(icon_path))
 
@@ -197,35 +256,26 @@ def main():
     elif "--tailscale" in sys.argv:
         window.net_manager.set_tailscale_enabled(True)
 
-    if "--minimized" in sys.argv:
+    start_minimized = ("--minimized" in sys.argv) or bool(app_settings.data.start_minimized)
+
+    if start_minimized:
         window.hide()
     else:
-        window.show()
-        window.showNormal()
-        window.raise_()
-        window.activateWindow()
+        if app_settings.data.remember_window_geometry and app_settings.data.window_maximized:
+            window.showMaximized()
+        else:
+            window.show()
+            window.raise_()
+            window.activateWindow()
+
+    if window.taskbar_widget.isVisible():
         if sys.platform == "win32":
             try:
-                hwnd = int(window.winId())
-                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-                ctypes.windll.user32.ShowWindow(hwnd, 1)  # SW_SHOWNORMAL (overrides parent SW_HIDE)
-                # Briefly set TOPMOST then NOTOPMOST (unless pinned) to bypass Windows foreground lock
-                SWP_NOMOVE = 0x0002
-                SWP_NOSIZE = 0x0001
-                SWP_SHOWWINDOW = 0x0040
-                ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
-                if not window.always_on_top:
-                    ctypes.windll.user32.SetWindowPos(hwnd, -2, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
-                ctypes.windll.user32.SetForegroundWindow(hwnd)
+                tw_hwnd = int(window.taskbar_widget.winId())
+                ctypes.windll.user32.ShowWindow(tw_hwnd, 4)  # SW_SHOWNOACTIVATE
             except Exception:
                 pass
-        if window.taskbar_widget.isVisible():
-            if sys.platform == "win32":
-                try:
-                    tw_hwnd = int(window.taskbar_widget.winId())
-                    ctypes.windll.user32.ShowWindow(tw_hwnd, 4)  # SW_SHOWNOACTIVATE
-                except Exception:
-                    pass
+        if app_settings.data.taskbar_x is None or app_settings.data.taskbar_y is None:
             window.taskbar_widget.dock_to_clock()
 
     sys.exit(app.exec())

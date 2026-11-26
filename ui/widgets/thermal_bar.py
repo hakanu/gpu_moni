@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
 from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QPainter, QLinearGradient, QColor, QFont, QPen
 
+from core.settings import get_settings, format_temp
 from ui.theme import Theme
 
 
@@ -70,11 +71,12 @@ class ThermalBar(QWidget):
         mem_temp_c: float = None,
     ):
         self.temp_c = temp_c
+        unit = get_settings().data.temp_unit
         eff_temp = max(temp_c, (hotspot_c - 22.0) if hotspot_c else 0.0)
         color_hex = Theme.get_temp_color(eff_temp)
         status_text = Theme.get_temp_status(eff_temp)
 
-        self.lbl_temp.setText(f"{int(round(temp_c))}°C")
+        self.lbl_temp.setText(format_temp(temp_c, unit))
         self.lbl_temp.setStyleSheet(f"font-size: 22px; font-weight: bold; color: {color_hex};")
 
         self.lbl_status.setText(status_text)
@@ -97,9 +99,9 @@ class ThermalBar(QWidget):
         # Hotspot & Memory Temp
         extra_parts = []
         if hotspot_c is not None and hotspot_c > 0:
-            extra_parts.append(f"Junc/Hotspot: {int(round(hotspot_c))}°C")
+            extra_parts.append(f"Junc/Hotspot: {format_temp(hotspot_c, unit)}")
         if mem_temp_c is not None and mem_temp_c > 0:
-            extra_parts.append(f"Mem: {int(round(mem_temp_c))}°C")
+            extra_parts.append(f"Mem: {format_temp(mem_temp_c, unit)}")
         if extra_parts:
             self.lbl_hotspot.setText(" • ".join(extra_parts))
         else:

@@ -64,10 +64,9 @@ class GpuCard(QFrame):
 
         # GPU Name
         self.lbl_name = QLabel(self.device.name)
+        self.lbl_name.setWordWrap(True)
         self.lbl_name.setStyleSheet("font-size: 16px; font-weight: 700; color: #ffffff;")
-        header_layout.addWidget(self.lbl_name)
-
-        header_layout.addStretch()
+        header_layout.addWidget(self.lbl_name, stretch=1)
 
         # Architecture / Cores / PCIe / Bus Info Pill
         info_parts = []
@@ -83,8 +82,10 @@ class GpuCard(QFrame):
         if self.device.bus_id:
             info_parts.append(self.device.bus_id)
         self.lbl_bus = QLabel(" • ".join(info_parts))
+        self.lbl_bus.setWordWrap(True)
+        self.lbl_bus.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.lbl_bus.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 11px; font-weight: 600;")
-        header_layout.addWidget(self.lbl_bus)
+        header_layout.addWidget(self.lbl_bus, stretch=1)
 
         main_layout.addLayout(header_layout)
 

@@ -13,13 +13,15 @@ from PyQt6.QtWidgets import (
     QWidget, QMenu, QApplication
 )
 from PyQt6.QtCore import (
-    Qt, QPoint, QRectF, pyqtSignal, QSettings, QTimer
+    Qt, QPoint, QRectF, pyqtSignal, QTimer
 )
 from PyQt6.QtGui import (
     QPainter, QColor, QFont, QPen, QBrush, QCursor, QAction, QActionGroup, QLinearGradient
 )
 
 from core.gpu_types import GpuDevice, GpuMetrics, HostMetrics
+from core.settings import get_settings, format_temp
+from core.version import WINDOWS_APP_ID
 from ui.theme import Theme
 
 
@@ -53,10 +55,11 @@ def apply_win32_tool_window_styles(hwnd: int):
         pass
 
 
-def pin_app_to_all_desktops(app_id: str = "antigravity.gpusentry.monitor.1.0"):
+def unpin_app_from_all_desktops(app_id: str = WINDOWS_APP_ID):
     """
-    Pins application to all Windows Virtual Desktops so it remains visible
-    when switching screens or virtual desktops with Win + Ctrl + Left/Right.
+    Ensures the GPU Sentry AppUserModelID is NOT pinned across all Windows
+    Virtual Desktops (clearing any legacy PinAppID state so the main dashboard
+    stays strictly on the desktop where the user opened it).
     """
     if sys.platform != "win32":
         return
@@ -119,11 +122,13 @@ def pin_app_to_all_desktops(app_id: str = "antigravity.gpusentry.monitor.1.0"):
                     ctypes.cast(pPinnedApps, ctypes.POINTER(ctypes.c_void_p)).contents,
                     ctypes.POINTER(ctypes.c_void_p),
                 )
-                PinAppID_proto = ctypes.WINFUNCTYPE(
+                # IVirtualDesktopPinnedApps vtable:
+                # 0:QI, 1:AddRef, 2:Release, 3:IsAppIdPinned, 4:PinAppID, 5:UnpinAppID
+                UnpinAppID_proto = ctypes.WINFUNCTYPE(
                     ctypes.c_long, ctypes.c_void_p, wintypes.LPCWSTR
                 )
-                PinAppID = PinAppID_proto(vt[4])
-                PinAppID(pPinnedApps, app_id)
+                UnpinAppID = UnpinAppID_proto(vt[5])
+                UnpinAppID(pPinnedApps, app_id)
     except Exception:
         pass
 
@@ -148,14 +153,15 @@ class TaskbarWidget(QWidget):
         super().__init__(parent)
         self.main_window = main_window
 
-        # Settings
-        self.settings = QSettings("Antigravity", "GPUSentry")
-        self.display_mode = self.settings.value("taskbar_mode", self.MODE_COMPACT_2LINE, type=str)
-        self.selected_gpu_id = self.settings.value("taskbar_gpu", "auto", type=str)
-        self.secondary_metric = self.settings.value("taskbar_sec_metric", "power", type=str)
-        self.is_locked = self.settings.value("taskbar_locked", False, type=bool)
-        self.always_on_top = self.settings.value("taskbar_topmost", True, type=bool)
-        self.bg_opacity = self.settings.value("taskbar_opacity", 88, type=int)
+        # Settings (centralized AppSettings)
+        self.app_settings = get_settings()
+        sd = self.app_settings.data
+        self.display_mode = sd.taskbar_mode
+        self.selected_gpu_id = sd.taskbar_gpu
+        self.secondary_metric = sd.taskbar_sec_metric
+        self.is_locked = sd.taskbar_locked
+        self.always_on_top = sd.taskbar_topmost
+        self.bg_opacity = sd.taskbar_opacity
 
         # Telemetry State
         self.devices: List[GpuDevice] = []
@@ -173,20 +179,21 @@ class TaskbarWidget(QWidget):
         self._hook = None
         self._win_event_proc = None
 
-        self._init_window()
+        self._init_window(show_initial=bool(sd.taskbar_visible))
         self._update_dimensions()
 
         # Restore position or dock to clock
-        saved_x = self.settings.value("taskbar_x", None)
-        saved_y = self.settings.value("taskbar_y", None)
+        saved_x = sd.taskbar_x
+        saved_y = sd.taskbar_y
         if saved_x is not None and saved_y is not None:
             self.move(int(saved_x), int(saved_y))
             self._expected_pos = QPoint(int(saved_x), int(saved_y))
-        else:
+        elif sd.taskbar_visible:
             QTimer.singleShot(200, self.dock_to_clock)
 
-        # Pin across virtual desktops
-        pin_app_to_all_desktops("antigravity.gpusentry.monitor.1.0")
+        # Clear any legacy app-wide virtual desktop pin so the main dashboard
+        # never gets forced onto every virtual desktop
+        unpin_app_from_all_desktops(WINDOWS_APP_ID)
 
         # Setup reactive Windows event hook
         if sys.platform == "win32":
@@ -198,7 +205,7 @@ class TaskbarWidget(QWidget):
         self._z_guard_timer.timeout.connect(self.ensure_topmost)
         self._z_guard_timer.start()
 
-    def _init_window(self):
+    def _init_window(self, show_initial: bool = True):
         # Window flags: Tool window, frameless, stay on top, never take focus
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowDoesNotAcceptFocus
         if self.always_on_top:
@@ -211,12 +218,41 @@ class TaskbarWidget(QWidget):
         self.setMouseTracking(True)
         self.setWindowTitle("GPU Sentry - Taskbar Widget")
 
-        # Win32 extended styles
-        self.show()
-        try:
-            apply_win32_tool_window_styles(int(self.winId()))
-        except Exception:
-            pass
+        if show_initial:
+            self.show()
+            try:
+                apply_win32_tool_window_styles(int(self.winId()))
+            except Exception:
+                pass
+        else:
+            self.hide()
+
+    def reload_from_settings(self):
+        """Applies updated preferences from AppSettings."""
+        sd = self.app_settings.data
+        self.display_mode = sd.taskbar_mode
+        self.selected_gpu_id = sd.taskbar_gpu
+        self.secondary_metric = sd.taskbar_sec_metric
+        self.is_locked = sd.taskbar_locked
+        self.bg_opacity = sd.taskbar_opacity
+        if self.always_on_top != sd.taskbar_topmost:
+            self.always_on_top = sd.taskbar_topmost
+            flags = self.windowFlags()
+            if self.always_on_top:
+                self.setWindowFlags(flags | Qt.WindowType.WindowStaysOnTopHint)
+            else:
+                self.setWindowFlags(flags & ~Qt.WindowType.WindowStaysOnTopHint)
+            if sd.taskbar_visible:
+                self.show()
+                if sys.platform == "win32":
+                    apply_win32_tool_window_styles(int(self.winId()))
+                    self.ensure_topmost()
+        if sd.taskbar_visible and not self.isVisible():
+            self.show_widget()
+        elif not sd.taskbar_visible and self.isVisible():
+            self.hide_widget()
+        self._update_dimensions()
+        self.update()
 
     def ensure_topmost(self):
         """
@@ -422,6 +458,10 @@ class TaskbarWidget(QWidget):
             ]
 
         dock_x, dock_y = None, None
+        primary_screen = QApplication.primaryScreen()
+        dpr = primary_screen.devicePixelRatio() if primary_screen else 1.0
+        if dpr <= 0:
+            dpr = 1.0
 
         if user32:
             try:
@@ -429,22 +469,26 @@ class TaskbarWidget(QWidget):
                 if tray_hwnd:
                     r_tray = RECT()
                     user32.GetWindowRect(tray_hwnd, ctypes.byref(r_tray))
-                    tray_h = r_tray.bottom - r_tray.top
-                    dock_y = r_tray.top + max(0, (tray_h - self.height()) // 2)
+                    # Convert Win32 physical pixels to Qt logical pixels
+                    tray_top = r_tray.top / dpr
+                    tray_bottom = r_tray.bottom / dpr
+                    tray_right = r_tray.right / dpr
+                    tray_h = tray_bottom - tray_top
+                    dock_y = tray_top + max(0.0, (tray_h - self.height()) / 2.0)
 
                     notify_hwnd = user32.FindWindowExW(tray_hwnd, None, "TrayNotifyWnd", None)
                     r_notify = RECT()
                     if notify_hwnd and user32.GetWindowRect(notify_hwnd, ctypes.byref(r_notify)):
-                        # Place directly to the left of notification area
-                        dock_x = r_notify.left - self.width() - 8
+                        notify_left = r_notify.left / dpr
+                        dock_x = notify_left - self.width() - 8
                     else:
-                        dock_x = r_tray.right - 450 - self.width()
+                        dock_x = tray_right - 450 - self.width()
             except Exception:
                 pass
 
         # Fallback to Qt Screen geometry
         if dock_x is None or dock_y is None:
-            screen = QApplication.primaryScreen()
+            screen = primary_screen
             if screen:
                 sg = screen.geometry()
                 ag = screen.availableGeometry()
@@ -458,7 +502,7 @@ class TaskbarWidget(QWidget):
 
         if dock_x is not None and dock_y is not None:
             # Constrain to visible screen bounds
-            screen = QApplication.primaryScreen()
+            screen = primary_screen
             if screen:
                 sg = screen.geometry()
                 dock_x = max(sg.left() + 10, min(dock_x, sg.right() - self.width() - 10))
@@ -467,8 +511,7 @@ class TaskbarWidget(QWidget):
             pos = QPoint(int(dock_x), int(dock_y))
             self.move(pos)
             self._expected_pos = pos
-            self.settings.setValue("taskbar_x", int(dock_x))
-            self.settings.setValue("taskbar_y", int(dock_y))
+            self.app_settings.update(taskbar_x=int(dock_x), taskbar_y=int(dock_y), notify=False)
             self.ensure_topmost()
 
     # Mouse & Drag Events
@@ -495,8 +538,7 @@ class TaskbarWidget(QWidget):
 
             self.move(new_pos)
             self._expected_pos = new_pos
-            self.settings.setValue("taskbar_x", new_pos.x())
-            self.settings.setValue("taskbar_y", new_pos.y())
+            self.app_settings.update(taskbar_x=new_pos.x(), taskbar_y=new_pos.y(), notify=False)
             event.accept()
         else:
             if not self.is_locked:
@@ -683,7 +725,7 @@ class TaskbarWidget(QWidget):
 
     def _toggle_lock(self):
         self.is_locked = not self.is_locked
-        self.settings.setValue("taskbar_locked", self.is_locked)
+        self.app_settings.set("taskbar_locked", self.is_locked)
         if self.is_locked:
             self._expected_pos = self.pos()
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
@@ -692,27 +734,27 @@ class TaskbarWidget(QWidget):
 
     def _set_layout_mode(self, mode: str):
         self.display_mode = mode
-        self.settings.setValue("taskbar_mode", mode)
+        self.app_settings.set("taskbar_mode", mode)
         self._update_dimensions()
 
     def _set_selected_gpu(self, gpu_id: str):
         self.selected_gpu_id = gpu_id
-        self.settings.setValue("taskbar_gpu", gpu_id)
+        self.app_settings.set("taskbar_gpu", gpu_id)
         self.update()
 
     def _set_secondary_metric(self, metric: str):
         self.secondary_metric = metric
-        self.settings.setValue("taskbar_sec_metric", metric)
+        self.app_settings.set("taskbar_sec_metric", metric)
         self.update()
 
     def _set_opacity(self, opacity: int):
         self.bg_opacity = opacity
-        self.settings.setValue("taskbar_opacity", opacity)
+        self.app_settings.set("taskbar_opacity", opacity)
         self.update()
 
     def _toggle_always_on_top(self):
         self.always_on_top = not self.always_on_top
-        self.settings.setValue("taskbar_topmost", self.always_on_top)
+        self.app_settings.set("taskbar_topmost", self.always_on_top)
         flags = self.windowFlags()
         if self.always_on_top:
             self.setWindowFlags(flags | Qt.WindowType.WindowStaysOnTopHint)
@@ -725,12 +767,12 @@ class TaskbarWidget(QWidget):
 
     def hide_widget(self):
         self.hide()
-        self.settings.setValue("taskbar_visible", False)
+        self.app_settings.set("taskbar_visible", False)
         self.visibility_changed.emit(False)
 
     def show_widget(self):
         self.show()
-        self.settings.setValue("taskbar_visible", True)
+        self.app_settings.set("taskbar_visible", True)
         self.visibility_changed.emit(True)
         if sys.platform == "win32":
             apply_win32_tool_window_styles(int(self.winId()))

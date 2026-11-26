@@ -104,15 +104,16 @@ class CpuRamCard(QFrame):
 
         # CPU Name
         self.lbl_name = QLabel("Processor & System Memory")
+        self.lbl_name.setWordWrap(True)
         self.lbl_name.setStyleSheet("font-size: 16px; font-weight: 700; color: #ffffff;")
-        header_layout.addWidget(self.lbl_name)
-
-        header_layout.addStretch()
+        header_layout.addWidget(self.lbl_name, stretch=1)
 
         # Cores & RAM specs pill
         self.lbl_specs = QLabel("Detecting hardware...")
+        self.lbl_specs.setWordWrap(True)
+        self.lbl_specs.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.lbl_specs.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 11px; font-weight: 600;")
-        header_layout.addWidget(self.lbl_specs)
+        header_layout.addWidget(self.lbl_specs, stretch=1)
 
         main_layout.addLayout(header_layout)
 

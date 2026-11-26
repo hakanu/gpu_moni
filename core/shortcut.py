@@ -2,11 +2,48 @@
 Shortcut and Autostart Manager for GPU Sentry.
 Supports Windows (Start Menu .lnk via native IShellLinkW COM & Run registry key)
 and Linux (XDG .desktop files in ~/.local/share/applications and ~/.config/autostart).
+
+Always prefers a true GUI (no-console) launcher on Windows:
+- Frozen PyInstaller GUI exe (when running packaged release), or
+- pythonw.exe + main.py (never a CUI console shim).
 """
 
 import sys
 import os
 import shutil
+
+
+def _resolve_windows_gui_target() -> tuple[str, str, str]:
+    """
+    Returns (exe_path, base_args, work_dir) for launching GPU Sentry on Windows
+    without spawning a background console window.
+    """
+    if getattr(sys, "frozen", False):
+        exe = os.path.abspath(sys.executable)
+        return exe, "", os.path.dirname(exe)
+
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    main_py = os.path.join(root_dir, "main.py")
+
+    exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+    pythonw = os.path.join(exe_dir, "pythonw.exe")
+    if not os.path.isfile(pythonw):
+        found = shutil.which("pythonw")
+        pythonw = found if found else sys.executable
+
+    if os.path.isfile(main_py):
+        return pythonw, f'"{main_py}"', root_dir
+    return pythonw, "-m main", root_dir
+
+
+def _resolve_icon_path() -> str:
+    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    ico = os.path.join(base_dir, "assets", "gpu_sentry.ico")
+    if os.path.isfile(ico):
+        return ico
+    if getattr(sys, "frozen", False):
+        return os.path.abspath(sys.executable)
+    return ico
 
 
 def get_start_menu_shortcut_path() -> str:
@@ -122,23 +159,13 @@ def _install_windows_shortcut(desktop: bool = False) -> tuple[bool, str]:
         SetIcon = SetIcon_proto(vt[17])
         SetPath = SetPath_proto(vt[20])
 
-        # Resolve paths
-        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        main_py = os.path.join(root_dir, "main.py")
-        ico_path = os.path.join(root_dir, "assets", "gpu_sentry.ico")
-        uv_bin = os.path.expandvars(r"%USERPROFILE%\.local\bin\gpu-sentry.exe")
+        target_exe, base_args, work_dir = _resolve_windows_gui_target()
+        ico_path = _resolve_icon_path()
 
-        if os.path.isfile(uv_bin):
-            SetPath(pLink, uv_bin)
-            SetWorkDir(pLink, root_dir)
-        else:
-            pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-            if not os.path.isfile(pythonw):
-                pythonw = sys.executable
-            SetPath(pLink, pythonw)
-            SetArgs(pLink, f'"{main_py}"')
-            SetWorkDir(pLink, root_dir)
-
+        SetPath(pLink, target_exe)
+        if base_args:
+            SetArgs(pLink, base_args)
+        SetWorkDir(pLink, work_dir)
         SetDesc(pLink, "GPU & System Sentry - High-Performance Telemetry Dashboard")
         if os.path.isfile(ico_path):
             SetIcon(pLink, ico_path, 0)
@@ -170,13 +197,15 @@ def _install_windows_shortcut(desktop: bool = False) -> tuple[bool, str]:
         return False, str(e)
 
 
-def _install_linux_shortcut(desktop: bool = False) -> tuple[bool, str]:
+def _install_linux_shortcut(desktop: bool = False, extra_args: str = "") -> tuple[bool, str]:
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     main_py = os.path.join(root_dir, "main.py")
     png_icon = os.path.join(root_dir, "assets", "gpu_sentry.png")
     which_bin = shutil.which("gpu-sentry")
 
     exec_cmd = which_bin if which_bin else f"{sys.executable} {main_py}"
+    if extra_args:
+        exec_cmd = f"{exec_cmd} {extra_args}"
 
     desktop_entry = f"""[Desktop Entry]
 Type=Application
@@ -226,7 +255,7 @@ def is_autostart_enabled() -> bool:
         return os.path.isfile(autostart_file)
 
 
-def set_autostart(enable: bool) -> tuple[bool, str]:
+def set_autostart(enable: bool, start_minimized: bool = True) -> tuple[bool, str]:
     """Enables or disables launching GPU Sentry on system login."""
     if sys.platform == "win32":
         import winreg
@@ -239,16 +268,13 @@ def set_autostart(enable: bool) -> tuple[bool, str]:
                 winreg.KEY_SET_VALUE | winreg.KEY_READ,
             )
             if enable:
-                uv_bin = os.path.expandvars(r"%USERPROFILE%\.local\bin\gpu-sentry.exe")
-                if os.path.isfile(uv_bin):
-                    cmd = f'"{uv_bin}"'
-                else:
-                    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                    main_py = os.path.join(root_dir, "main.py")
-                    pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-                    if not os.path.isfile(pythonw):
-                        pythonw = sys.executable
-                    cmd = f'"{pythonw}" "{main_py}"'
+                target_exe, base_args, _ = _resolve_windows_gui_target()
+                parts = [f'"{target_exe}"']
+                if base_args:
+                    parts.append(base_args)
+                if start_minimized:
+                    parts.append("--minimized")
+                cmd = " ".join(parts)
                 winreg.SetValueEx(key, "GPUSentry", 0, winreg.REG_SZ, cmd)
                 msg = "Autostart enabled on Windows login."
             else:
@@ -267,12 +293,25 @@ def set_autostart(enable: bool) -> tuple[bool, str]:
         try:
             if enable:
                 os.makedirs(autostart_dir, exist_ok=True)
-                menu_path = get_start_menu_shortcut_path()
-                if os.path.isfile(menu_path):
-                    shutil.copy(menu_path, autostart_file)
-                else:
-                    _install_linux_shortcut()
-                    shutil.copy(menu_path, autostart_file)
+                root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                main_py = os.path.join(root_dir, "main.py")
+                png_icon = os.path.join(root_dir, "assets", "gpu_sentry.png")
+                which_bin = shutil.which("gpu-sentry")
+                exec_cmd = which_bin if which_bin else f"{sys.executable} {main_py}"
+                if start_minimized:
+                    exec_cmd = f"{exec_cmd} --minimized"
+                entry = f"""[Desktop Entry]
+Type=Application
+Name=GPU Sentry
+Comment=High-Performance Real-Time Multi-GPU & CPU Telemetry Dashboard
+Exec={exec_cmd}
+Icon={png_icon}
+Terminal=false
+X-GNOME-Autostart-enabled=true
+"""
+                with open(autostart_file, "w", encoding="utf-8") as f:
+                    f.write(entry)
+                os.chmod(autostart_file, 0o755)
                 return True, "Autostart enabled on Linux login."
             else:
                 if os.path.isfile(autostart_file):
@@ -280,3 +319,9 @@ def set_autostart(enable: bool) -> tuple[bool, str]:
                 return True, "Autostart disabled."
         except Exception as e:
             return False, str(e)
+
+
+def refresh_autostart_if_enabled(start_minimized: bool = True):
+    """If autostart is already enabled, re-writes the entry to use the current console-free binary."""
+    if is_autostart_enabled():
+        set_autostart(True, start_minimized=start_minimized)

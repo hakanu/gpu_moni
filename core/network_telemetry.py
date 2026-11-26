@@ -340,6 +340,7 @@ class NetworkTelemetryManager(QObject):
         self.local_server = LocalTelemetryServer(port=DEFAULT_HTTP_PORT)
         self.os_name = os_name
         self.server_enabled = True
+        self.auto_scan_on_start = True
         self.tailscale_enabled = True
         self.pin_remote_cards = False
         self.condensed_view = True
@@ -362,10 +363,11 @@ class NetworkTelemetryManager(QObject):
         self._running = True
         if self.server_enabled:
             self.local_server.start()
-        self.request_lan_scan()
-        # Always queue a background Tailnet scan on startup (runs right after saved nodes are polled)
-        if self.tailscale_enabled:
-            self.request_tailnet_scan()
+        if self.auto_scan_on_start:
+            self.request_lan_scan()
+            # Always queue a background Tailnet scan on startup (runs right after saved nodes are polled)
+            if self.tailscale_enabled:
+                self.request_tailnet_scan()
         threading.Thread(target=self._poll_loop, daemon=True).start()
 
     def stop(self):

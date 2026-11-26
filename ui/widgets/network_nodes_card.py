@@ -18,6 +18,8 @@ from core.network_telemetry import (
     get_local_lan_ips,
 )
 from ui.theme import Theme
+from ui.widgets.flow_layout import FlowLayout
+from ui.widgets.wrap_button import WrapButton
 
 
 class NetworkNodesCard(QFrame):
@@ -49,9 +51,12 @@ class NetworkNodesCard(QFrame):
         self.main_layout.setContentsMargins(16, 12, 16, 12)
         self.main_layout.setSpacing(10)
 
-        # 1. Header Row
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(8)
+        # 1. Header Section (Title Row + Wrapping Controls Flow)
+        header_wrapper = QVBoxLayout()
+        header_wrapper.setSpacing(8)
+
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
 
         self.lbl_badge = QLabel("TAILNET & LAN GPUs")
         self.lbl_badge.setStyleSheet(f"""
@@ -64,48 +69,50 @@ class NetworkNodesCard(QFrame):
             font-weight: 800;
             letter-spacing: 0.5px;
         """)
-        header_layout.addWidget(self.lbl_badge)
+        title_row.addWidget(self.lbl_badge)
 
         self.lbl_title = QLabel("Tailscale & Network GPUs")
+        self.lbl_title.setWordWrap(True)
         self.lbl_title.setStyleSheet("font-size: 15px; font-weight: 700; color: #ffffff;")
-        header_layout.addWidget(self.lbl_title)
+        title_row.addWidget(self.lbl_title, stretch=1)
+        header_wrapper.addLayout(title_row)
 
-        header_layout.addStretch()
+        actions_flow = FlowLayout(margin=0, h_spacing=8, v_spacing=6)
 
         # Local Server IP/Port or Aggregated Tailnet Summary Badge
         lan_ips = get_local_lan_ips()
         ip_str = lan_ips[0] if lan_ips else "0.0.0.0"
         self.lbl_server_info = QLabel(f"🟢 Local Agent ({ip_str}:{self.net_manager.local_server.port})")
-        self.lbl_server_info.setStyleSheet(f"color: {Theme.NVIDIA_GREEN}; font-size: 11px; font-weight: 600;")
-        header_layout.addWidget(self.lbl_server_info)
+        self.lbl_server_info.setStyleSheet(f"color: {Theme.NVIDIA_GREEN}; font-size: 11px; font-weight: 600; padding: 4px 0px;")
+        actions_flow.addWidget(self.lbl_server_info)
 
         # Master Tailscale ON/OFF Toggle
-        self.btn_tailscale_toggle = QPushButton()
+        self.btn_tailscale_toggle = WrapButton()
         self.btn_tailscale_toggle.setCheckable(True)
         self.btn_tailscale_toggle.setChecked(self.net_manager.tailscale_enabled)
         self.btn_tailscale_toggle.setToolTip("Turn Tailscale-based GPU discovery & monitoring ON or OFF")
         self.btn_tailscale_toggle.clicked.connect(self._on_toggle_tailscale)
         self._apply_tailscale_btn_style(self.net_manager.tailscale_enabled)
-        header_layout.addWidget(self.btn_tailscale_toggle)
+        actions_flow.addWidget(self.btn_tailscale_toggle)
 
         # Condensed Rows vs Detailed Cards toggle
-        self.btn_dense_rows = QPushButton("⚡ Condensed Rows")
+        self.btn_dense_rows = WrapButton("⚡ Condensed Rows")
         self.btn_dense_rows.setCheckable(True)
         self.btn_dense_rows.setChecked(self.use_condensed_rows)
         self.btn_dense_rows.setToolTip("Toggle between ultra-condensed single-line GPU rows and detailed multi-line node cards")
         self.btn_dense_rows.clicked.connect(self._on_toggle_dense_rows)
-        header_layout.addWidget(self.btn_dense_rows)
+        actions_flow.addWidget(self.btn_dense_rows)
 
         # Pin remote GPUs as full GpuCards toggle
-        self.btn_pin_cards = QPushButton("📌 Full Cards")
+        self.btn_pin_cards = WrapButton("📌 Full Cards")
         self.btn_pin_cards.setCheckable(True)
         self.btn_pin_cards.setChecked(self.net_manager.pin_remote_cards)
         self.btn_pin_cards.setToolTip("Also render remote network GPUs as full cards with 60s sparklines in the dashboard")
         self.btn_pin_cards.clicked.connect(lambda c: self.net_manager.set_pin_remote_cards(c))
-        header_layout.addWidget(self.btn_pin_cards)
+        actions_flow.addWidget(self.btn_pin_cards)
 
         # Re-Scan Tailscale Tailnet & Network button
-        self.btn_scan_tailnet = QPushButton("🔄 Re-Scan Network")
+        self.btn_scan_tailnet = WrapButton("🔄 Re-Scan Network")
         self.btn_scan_tailnet.setToolTip("Re-scan all online machines in your Tailscale Tailnet (Linux, Windows, macOS) & LAN for GPUs")
         self.btn_scan_tailnet.setStyleSheet(f"""
             QPushButton {{
@@ -128,20 +135,21 @@ class NetworkNodesCard(QFrame):
         """)
         self.btn_scan_tailnet.setEnabled(self.net_manager.tailscale_enabled)
         self.btn_scan_tailnet.clicked.connect(self._on_scan_tailnet_clicked)
-        header_layout.addWidget(self.btn_scan_tailnet)
+        actions_flow.addWidget(self.btn_scan_tailnet)
 
         # Scan LAN button
-        self.btn_scan = QPushButton("🔍 Scan LAN")
+        self.btn_scan = WrapButton("🔍 Scan LAN")
         self.btn_scan.setToolTip("Broadcast UDP discovery to find other GPU Sentry machines on your local network")
         self.btn_scan.clicked.connect(self._on_scan_clicked)
-        header_layout.addWidget(self.btn_scan)
+        actions_flow.addWidget(self.btn_scan)
 
         # Collapse / Expand button
-        self.btn_toggle = QPushButton("▲ Collapse")
+        self.btn_toggle = WrapButton("▲ Collapse")
         self.btn_toggle.clicked.connect(self.toggle_expanded)
-        header_layout.addWidget(self.btn_toggle)
+        actions_flow.addWidget(self.btn_toggle)
 
-        self.main_layout.addLayout(header_layout)
+        header_wrapper.addLayout(actions_flow)
+        self.main_layout.addLayout(header_wrapper)
 
         # Collapsible Body
         self.body_widget = QWidget()
@@ -186,7 +194,7 @@ class NetworkNodesCard(QFrame):
         self.txt_address.returnPressed.connect(self._on_add_node)
         add_bar.addWidget(self.txt_address, stretch=1)
 
-        self.btn_add = QPushButton("➕ Connect")
+        self.btn_add = WrapButton("➕ Connect")
         self.btn_add.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Theme.CYBER_CYAN}22;
