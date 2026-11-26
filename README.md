@@ -59,7 +59,7 @@ Tailscale scanning is **OFF by default on fresh installs** so the app never surp
 2. Remote machines are discovered automatically via:
    - **Linux & macOS (Agentless SSH)**: Requires passwordless SSH (`BatchMode=yes`). On macOS (e.g. Mac mini), enable **System Settings → General → Sharing → Remote Login** and copy your SSH key once:
      ```powershell
-     type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh <mac_user>@hakumacmini "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+     type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh <mac_user>@<mac_host> "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
      ```
    - **Any OS (Headless Agent, No SSH needed)**: Run `gpu-sentry --agent` on the remote machine (listens on HTTP `:51920` + UDP `:51921`).
    - **Windows (LibreHardwareMonitor)**: Automatically detects LHM web server on `:8085`.
@@ -101,7 +101,7 @@ Windows OpenSSH (`C:\Windows\System32\OpenSSH\ssh.exe`) has a known quirk: when 
 - Click **`🔄 Refresh Tailnet`** to clear cached probe states and re-scan.
 - Agentless SSH uses `BatchMode=yes` (non-interactive). If you see `Permission denied (publickey,password,keyboard-interactive)`, copy your SSH public key to `~/.ssh/authorized_keys` on the remote machine, or run `gpu-sentry --agent` on it.
 - Note: The macOS App Store edition of Tailscale does not support running a Tailscale SSH server — use macOS **Remote Login** + SSH keys, or `gpu-sentry --agent`.
-- If the remote username differs from `hakanu`, your local username, or `root`, add `<user>@<host>` once in the **Network GPUs** panel.
+- If the remote username differs from your local username or `root`, add `<user>@<host>` once in the **Network GPUs** panel.
 </details>
 
 <details>

@@ -177,7 +177,7 @@ class NetworkNodesCard(QFrame):
         add_bar.addWidget(self.cb_proto)
 
         self.txt_address = QLineEdit()
-        self.txt_address.setPlaceholderText("Enter Tailscale host / IP / SSH (e.g. hakanu@hakuxtx or 100.88.172.48 or 192.168.1.50)...")
+        self.txt_address.setPlaceholderText("Enter Tailscale host / IP / SSH (e.g. user@gpu-rig or 100.64.0.10 or 192.168.1.50)...")
         self.txt_address.setStyleSheet(f"""
             QLineEdit {{
                 background-color: {Theme.BG_ROOT};

@@ -138,7 +138,7 @@ true
 
 @dataclass
 class RemoteNodeConfig:
-    node_id: str          # e.g. "sentry://192.168.1.50:51920" or "ssh://hakanu@hakuxtx"
+    node_id: str          # e.g. "sentry://192.168.1.50:51920" or "ssh://user@gpu-rig"
     address: str          # IP, hostname, or user@host
     protocol: str = "auto"  # "auto", "sentry", "ssh", "lhm"
     port: int = DEFAULT_HTTP_PORT
@@ -715,7 +715,7 @@ class NetworkTelemetryManager(QObject):
             raw_host = str(p.get("HostName", "")).strip()
             dns_name = str(p.get("DNSName", "")).strip().rstrip(".")
             dns_short = dns_name.split(".")[0].strip() if dns_name else ""
-            # Prefer clean DNS hostname (e.g. 'hakumacmini') over verbose HostName ('hakumacmini’s Mac mini')
+            # Prefer clean DNS hostname (e.g. 'mac-mini') over verbose HostName ('User’s Mac mini')
             host_name = dns_short or raw_host
             ts_ips = p.get("TailscaleIPs", [])
             ip = ts_ips[0] if ts_ips else ""
@@ -758,7 +758,7 @@ class NetworkTelemetryManager(QObject):
         except Exception:
             pass
         ssh_users = []
-        for u in ("hakanu", local_user, "root"):
+        for u in (local_user, "root"):
             if u and u not in ssh_users:
                 ssh_users.append(u)
 

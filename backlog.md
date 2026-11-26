@@ -16,7 +16,7 @@
   - Integrated `LinuxDrmBackend` into `BpytopTuiApp` so Ubuntu AMD and Intel GPUs appear natively in the Local GPUs box and Active GPU Processes panel.
   - Added automatic headless fallback in `main.py` so running `gpu-sentry` over SSH without `$DISPLAY`/`$WAYLAND_DISPLAY` launches the TUI automatically and `--agent` runs without requiring `PyQt6`.
   - Added non-root Linux SMBIOS Type 16/17 DIMM inspection via `/run/udev/data/+dmi:id` in `core/hardware_info.py`.
-  - Verified on Ubuntu AMD discrete (`hakuxtx` — RX 7900 XTX) and AMD APU (`gmk` — Radeon 780M) systems.
+  - Verified on Ubuntu AMD discrete (RX 7900 XTX) and AMD APU (Radeon 780M) systems.
 - [x] **GUI Tailscale ON/OFF Controls & Very Condensed View of Everything**:
   - Added master **`🦊 Tailscale: ON / OFF`** toggle button in the top navigation bar (`ui/main_window.py`), `NetworkNodesCard` header (`ui/widgets/network_nodes_card.py`), `CondensedDashboardWidget` (`ui/widgets/condensed_dashboard.py`), System Tray menu, and `t` hotkey in TUI (`ui/tui_dashboard.py`), plus `--no-tailscale` / `--tailscale` CLI flags.
   - Added per-node `ON` / `OFF` enable/disable toggles in `NetworkNodesCard` and `CondensedDashboardWidget`.
@@ -26,9 +26,9 @@
   - Added **`🔄 Re-Scan`** / **`🔄 Re-Scan Network`** button in the GUI navigation bar (`ui/main_window.py`), `CondensedDashboardWidget` (`ui/widgets/condensed_dashboard.py`), and `NetworkNodesCard` (`ui/widgets/network_nodes_card.py`), as well as `r` / `s` hotkey in `ui/tui_dashboard.py`.
   - Clears probed Tailscale cache and triggers an immediate parallel probe of both Tailscale Tailnet and local LAN nodes.
   - Added full macOS & Apple Silicon GPU support (`IOAccelerator` / `Metal`): parses GPU model (e.g. `Apple M4 (10-Core GPU)`), Metal driver version, core count, live `Device Utilization %`, `Renderer Utilization %`, `Tiler Utilization %`, Unified Memory (`sysctl hw.memsize` + `vm_stat`), and non-root die temperatures via `IOHIDEventSystemClient`.
-  - Added clean DNS MagicDNS resolution (`DNSName`) so macOS machines with spaces or special characters in `HostName` (e.g. `hakumacmini’s Mac mini` -> `hakumacmini`) connect cleanly over SSH.
+  - Added clean DNS MagicDNS resolution (`DNSName`) so macOS machines with spaces or special characters in `HostName` (e.g. `User’s Mac mini` -> `mac-mini`) connect cleanly over SSH.
   - Added zsh compatibility guard (`setopt NO_NOMATCH`) to the remote SSH probe so zsh on macOS does not abort on Linux sysfs glob patterns.
-  - Bumped version to `v1.1.4` and verified `hakumacmini` and `hakux` discovery and telemetry.
+  - Bumped version to `v1.1.4` and verified macOS and Linux peer discovery and telemetry.
 - [x] **Documentation (`README.md`)**:
   - Documented `uv` installation and git-based self-update workflows, Ubuntu setup, native AMD `amdgpu` telemetry features, TUI usage, and FAQ for Windows `taskkill` and Tailnet troubleshooting / Re-Scan.
 
