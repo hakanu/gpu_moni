@@ -18,6 +18,7 @@ from core.gpu_types import GpuDevice, GpuMetrics, HostMetrics
 from core.hardware_info import SystemHardwareSpecs
 from core.network_telemetry import NetworkTelemetryManager, RemoteNodeState
 from ui.theme import Theme
+from ui.widgets.wrap_button import WrapButton
 
 
 def _make_bar(color: str, width: int = 64, height: int = 6) -> QProgressBar:
@@ -256,7 +257,7 @@ class CondensedDashboardWidget(QWidget):
         net_hdr.addStretch()
 
         # Inline Tailscale ON/OFF toggle button
-        self.btn_ts_toggle = QPushButton()
+        self.btn_ts_toggle = WrapButton()
         self.btn_ts_toggle.setCheckable(True)
         self.btn_ts_toggle.setChecked(self.net_manager.tailscale_enabled)
         self.btn_ts_toggle.setToolTip("Turn Tailscale-based GPU monitoring ON or OFF")
@@ -264,9 +265,9 @@ class CondensedDashboardWidget(QWidget):
         self._style_ts_btn(self.net_manager.tailscale_enabled)
         net_hdr.addWidget(self.btn_ts_toggle)
 
-        # Re-Scan Network mini button
-        self.btn_ts_scan = QPushButton("🔄 Re-Scan Network")
-        self.btn_ts_scan.setToolTip("Re-scan all online Tailscale Tailnet peers (Linux, Windows, macOS) & local LAN for GPU machines")
+        # Refresh Tailnet Devices button (always clickable; enables Tailscale & rescans)
+        self.btn_ts_scan = WrapButton("🔄 Refresh Tailnet")
+        self.btn_ts_scan.setToolTip("Refresh & re-scan all online Tailscale Tailnet peers (Linux, Windows, macOS) & local LAN for GPU machines")
         self.btn_ts_scan.setStyleSheet(f"""
             QPushButton {{
                 background-color: {Theme.CYBER_PURPLE}22;
@@ -283,7 +284,7 @@ class CondensedDashboardWidget(QWidget):
         net_hdr.addWidget(self.btn_ts_scan)
 
         # Manage nodes mini button
-        self.btn_net_manage = QPushButton("⚙ Nodes")
+        self.btn_net_manage = WrapButton("⚙ Nodes")
         self.btn_net_manage.setToolTip("Open Network Nodes Manager to add/remove custom hosts")
         self.btn_net_manage.setStyleSheet(f"""
             QPushButton {{
@@ -443,21 +444,20 @@ class CondensedDashboardWidget(QWidget):
 
     def _on_tailscale_enabled_changed(self, enabled: bool):
         self._style_ts_btn(enabled)
-        self.btn_ts_scan.setEnabled(enabled)
         self.update_network_nodes(self.net_manager.get_visible_states())
 
     def _on_tailnet_scan_status(self, msg: str):
         if msg:
-            self.btn_ts_scan.setText("🔄 Scanning...")
+            self.btn_ts_scan.setText("🔄 Refreshing...")
             self.lbl_net_summary.setText(f"— {msg}")
         else:
-            self.btn_ts_scan.setText("🔄 Re-Scan Network")
+            self.btn_ts_scan.setText("🔄 Refresh Tailnet")
             self.update_network_nodes(self.net_manager.get_visible_states())
 
     def _on_scan_tailnet(self):
         if not self.net_manager.tailscale_enabled:
             self.net_manager.set_tailscale_enabled(True)
-        self.btn_ts_scan.setText("🔄 Scanning...")
+        self.btn_ts_scan.setText("🔄 Refreshing...")
         self.net_manager.rescan_network()
 
     def _clear_layout(self, layout):

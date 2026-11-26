@@ -340,8 +340,8 @@ class NetworkTelemetryManager(QObject):
         self.local_server = LocalTelemetryServer(port=DEFAULT_HTTP_PORT)
         self.os_name = os_name
         self.server_enabled = True
-        self.auto_scan_on_start = True
-        self.tailscale_enabled = True
+        self.auto_scan_on_start = False
+        self.tailscale_enabled = False
         self.pin_remote_cards = False
         self.condensed_view = True
         self.tailnet_name = ""
@@ -561,7 +561,7 @@ class NetworkTelemetryManager(QObject):
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self.server_enabled = bool(data.get("server_enabled", True))
-            self.tailscale_enabled = bool(data.get("tailscale_enabled", True))
+            self.tailscale_enabled = bool(data.get("tailscale_enabled", False))
             self.pin_remote_cards = bool(data.get("pin_remote_cards", False))
             self.condensed_view = bool(data.get("condensed_view_v2", True))
             for item in data.get("nodes", []):

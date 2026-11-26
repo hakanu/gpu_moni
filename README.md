@@ -53,7 +53,10 @@ Built specifically for multi-GPU workstations, Ubuntu AI/ROCm servers, and LAN/T
   - **Zero-dependency Linux `amdgpu` DRM + `hwmon` backend**: reads dedicated VRAM & shared GTT memory, Edge / Junction (Hotspot) / VRAM Memory temperatures, board wattage & PPT power cap, Fan RPM & PWM %, GFX / Memory / SoC DPM clocks, and active ROCm Compute (`/dev/kfd`) & Graphics (`/dev/dri`) processes via `/proc/<pid>/fdinfo`.
 - **⚡ Multi-View Desktop GUI (Very Condensed View by Default + Full Cards & Compact Modes)**:
   - **⚡ Very Condensed View of Everything (Default, or `--condensed` / `⚡ Condensed` button)**: Packs **Host CPU & RAM**, **All Local GPUs**, **All Tailscale/Network GPUs**, **Active GPU Processes**, and **Hardware Specs Summary** into a single ultra-dense, zero-scroll window (`CondensedDashboardWidget`). Uncheck **`⚡ Condensed`** (or pass `--expanded`) anytime to switch to the full multi-card view with radial arc gauges and 60s sparklines.
-  - **🦊 1-Click Tailscale ON / OFF Controls (`🦊 Tailscale: ON/OFF` & `--no-tailscale`)**: Turn Tailscale-based GPU discovery and polling completely ON or OFF at any time from the top navigation bar, the Condensed view, the Network GPUs card, the System Tray menu, or by pressing `t` in `gpu-sentry-tui`. Individual remote nodes can also be toggled `ON` or `OFF` independently.
+  - **📐 Responsive Wrapping UI & Window Scaling**: Uses `FlowLayout` toolbars/filter bars and word-wrapping `WrapButton`s so button labels never clip when resized, automatically fits to your screen's `availableGeometry()`, remembers window geometry/maximized state, and supports configurable **UI Scale (`85%`–`150%`)** and **°C / °F** temperature units.
+  - **⚙️ Centralized Settings Dialog (`⚙ Settings`)**: Manage startup/autostart, start-minimized, close-to-tray behavior, UI scale, °C/°F, polling interval, local LAN agent port, taskbar widget layout/opacity/GPU target, and GitHub Releases auto-update preferences from one organized dialog (`~/.gpu_sentry_settings.json`).
+  - **🔄 GitHub Releases Auto-Updater & Dual Packaging**: Ships both a **standalone no-console Windows GUI `.exe`/`.zip`** (zero Python required) and a **Python wheel / `uv tool`** package for Windows & Linux, with background GitHub Releases update checking, `SHA256SUMS.txt` verification, and silent self-updates.
+  - **🦊 Opt-In Tailscale Monitoring & 1-Click Refresh (`🦊 Tailscale: OFF/ON` & `🔄 Refresh Tailnet`)**: Tailscale auto-scanning is **OFF by default on fresh installations** so the app never surprises you with background network/SSH probes. Enable it anytime with **`🦊 Tailscale: OFF`** or click **`🔄 Refresh Tailnet`** (or press `t` / `r` in `gpu-sentry-tui`) to discover and refresh Tailnet GPU machines on demand. Individual remote nodes can also be toggled `ON` or `OFF` independently.
 - **🌐 Tailscale Tailnet & LAN GPU Monitoring (VRAM, Thermals & Wattage)**:
   - **Automatic Tailscale Tailnet GPU Discovery**: Scans `tailscale status --json` and probes online Linux, macOS & Windows Tailnet peers over Tailscale SSH / agent ports in parallel to automatically discover every machine equipped with an NVIDIA (`nvidia-smi`), AMD (`amdgpu` DRM/`hwmon`), Apple Silicon Metal (`ioreg` / `IOAccelerator` — M1/M2/M3/M4), or Intel (`i915`/`xe` DRM/`hwmon`) GPU.
   - **🔄 1-Click Network Re-Scan (`🔄 Re-Scan Network` button & `r`/`s` TUI hotkey)**: Clears cached discovery states and immediately re-scans both your Tailscale Tailnet and local LAN for newly connected machines (e.g. newly booted Mac minis, laptops, or remote rigs).
@@ -69,9 +72,25 @@ Built specifically for multi-GPU workstations, Ubuntu AI/ROCm servers, and LAN/T
 
 ---
 
-## 📦 Install & Update with `uv` (Git Repository)
+## 📦 Install & Auto-Update (GitHub Releases or `uv`)
 
-GPU Sentry is packaged as a standard PEP 621 tool with entry points (`gpu-sentry`, `gpu-sentry-tui`, `gpu-sentry-cli`) so you can install and update it globally in an isolated virtual environment using [uv](https://docs.astral.sh/uv/).
+### Option 1: Standalone Windows GUI App (Recommended for Windows — Zero Console, Auto-Updates)
+
+Download the latest **`gpu-sentry-windows-x64.exe`** (or `.zip`) from **[GitHub Releases](https://github.com/hakanu/gpu_moni/releases/latest)** — no Python installation required, no background terminal window, and built-in automatic updates with SHA256 verification:
+
+```powershell
+# PowerShell one-liner: install standalone Windows GUI exe to %LOCALAPPDATA%\GPUSentry
+$dir = "$env:LOCALAPPDATA\GPUSentry"; New-Item -ItemType Directory -Force -Path $dir | Out-Null
+Invoke-WebRequest -Uri "https://github.com/hakanu/gpu_moni/releases/latest/download/gpu-sentry-windows-x64.exe" -OutFile "$dir\gpu-sentry.exe" -UseBasicParsing
+Start-Process "$dir\gpu-sentry.exe" -ArgumentList "--install-shortcut" -Wait
+Start-Process "$dir\gpu-sentry.exe"
+```
+
+Auto-updates can be toggled or triggered anytime under **⚙ Settings → Updates**.
+
+### Option 2: Install & Update with `uv` (Windows & Linux)
+
+GPU Sentry is also packaged as a standard PEP 621 tool with entry points (`gpu-sentry`, `gpu-sentry-gui`, `gpu-sentry-tui`, `gpu-sentry-cli`) so you can install and update it globally in an isolated virtual environment using [uv](https://docs.astral.sh/uv/).
 
 ### 1. Install directly from GitHub with `uv`
 
@@ -471,12 +490,30 @@ uv tool install --upgrade --reinstall --force git+https://github.com/hakanu/gpu_
 - **In the GUI**: Click the **`⚡ Condensed`** button in the top navigation bar (or toggle **`⚡ Very Condensed View`** in the system tray menu).
 - **Via CLI**: Run `gpu-sentry --expanded` for Full Cards or `gpu-sentry --condensed` for the Condensed View.
 
-### Q5: Why is a machine on my Tailnet (like a Mac mini or Linux box) not showing up, or how do I re-scan?
-- **Hit Re-Scan**: Click the **`🔄 Re-Scan`** button in the GUI navigation bar (or press `r` in the TUI). This clears probed peer caches and triggers an immediate parallel probe of all online Tailnet and LAN machines.
-- **Ensure SSH or GPU Sentry is running**:
-  - For **Linux & macOS (e.g. Apple Silicon Mac mini / MacBook)**: Ensure **Tailscale SSH** is enabled on the remote machine (`tailscale up --ssh` or Remote Login enabled in System Settings). GPU Sentry connects agentlessly over SSH to read Metal/IOAccelerator or DRM sysfs metrics without requiring root.
-  - For **Windows**: Run `gpu-sentry --agent` on the remote machine (port `51920`) or run `LibreHardwareMonitor` with its web server enabled (port `8085`).
-- **Check DNS name**: If your machine's OS hostname contains spaces or quotes (e.g. `hakumacmini’s Mac mini`), GPU Sentry automatically resolves the clean MagicDNS hostname (`hakumacmini`) to connect cleanly.
+### Q5: Why is a machine on my Tailnet (like a Mac mini or Linux box) not showing up, or how do I refresh?
+- **Enable & Refresh Tailnet**: Tailscale auto-scanning is **OFF by default on fresh installs**. Click **`🦊 Tailscale: OFF`** or **`🔄 Refresh Tailnet`** in the top bar, Condensed view, or System Tray menu (or press `r` in the TUI). This clears probed peer caches and triggers an immediate parallel probe of all online Tailnet and LAN machines.
+- **Passwordless SSH is required for agentless macOS/Linux discovery**:
+  - GPU Sentry probes SSH peers non-interactively (`ssh -T -n -o BatchMode=yes`), so it **cannot prompt for a password**. If a peer (such as an Apple Silicon Mac mini) returns `Permission denied (publickey,password,keyboard-interactive)`, either:
+    1. **Copy your SSH public key** to the remote machine (one-time setup):
+       ```powershell
+       # From Windows PowerShell (replace <mac_user> and <host>, e.g. hakumacmini)
+       type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh <mac_user>@hakumacmini "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+       ```
+       *(Note: The macOS App Store edition of Tailscale does not support running a Tailscale SSH server — enable **System Settings → General → Sharing → Remote Login** and use SSH keys instead, or install the standalone Tailscale CLI.)*
+    2. **Or run the headless GPU Sentry agent** on the remote machine (`gpu-sentry --agent`, port `51920`) — no SSH keys required.
+  - For **Windows** remote hosts: run `gpu-sentry --agent` (port `51920`) or `LibreHardwareMonitor` with its web server enabled (port `8085`).
+- **Custom username / DNS name**: Auto-discovery probes common usernames (`hakanu`, your local username, `root`). If your macOS/Linux machine uses a different username, add `<user>@<host>` once in the **Network GPUs** panel. Hostnames with spaces or apostrophes (e.g. `hakumacmini’s Mac mini`) are automatically resolved to their clean MagicDNS name (`hakumacmini`).
+
+### Q6: Windows Quirks — Flashing Terminal Windows, Virtual Desktops, & GUI vs Console Shims
+- **Why did small black terminal windows briefly flash on Windows when Tailscale scanning ran?**
+  - This is a known **Windows OpenSSH (`C:\Windows\System32\OpenSSH\ssh.exe`) quirk**: when a Windows GUI (`--windowed` / `pythonw.exe`) app spawns `ssh.exe` with `CREATE_NO_WINDOW` (meaning no console is attached), Win32-OpenSSH calls `AllocConsole()` internally, which flashes a brief visible console window for every peer being probed.
+  - **How GPU Sentry handles it**:
+    1. Tailscale scanning is **OFF by default** on fresh installations (opt-in via **`🦊 Tailscale: OFF`** or **`🔄 Refresh Tailnet`**).
+    2. When probing over SSH on Windows, GPU Sentry passes `-T -n`, `SSH_ASKPASS_REQUIRE=never`, and `STARTUPINFO(STARTF_USESHOWWINDOW, SW_HIDE)` **without** `CREATE_NO_WINDOW`, giving `ssh.exe` a hidden console handle so it never flashes a visible window.
+- **Why did a background terminal stay open in older versions?**
+  - `uv tool install` exposes `gpu-sentry.exe` as a console (`WINDOWS_CUI`) shim so `gpu-sentry --tui` works in PowerShell/CMD. Starting in `v1.2.0`, Windows shortcuts & autostart automatically use `pythonw.exe` (or the standalone `WINDOWS_GUI` `.exe` from GitHub Releases), and GUI launches detach any auto-spawned console via `FreeConsole()`.
+- **Dashboard showing on every Windows Virtual Desktop**:
+  - Older versions called Windows' `IVirtualDesktopPinnedApps::PinAppID` on the entire process AppUserModelID, which pinned both the taskbar widget and the main dashboard across all virtual desktops. Starting in `v1.2.0`, GPU Sentry explicitly unpins the AppID on startup so the main dashboard stays strictly on the virtual desktop where you open it.
 
 ---
 

@@ -34,7 +34,7 @@ class SettingsData:
     poll_interval_ms: int = 1000
     local_agent_enabled: bool = True
     local_agent_port: int = 51920
-    auto_scan_network: bool = True
+    auto_scan_network: bool = False
 
     # Taskbar Widget
     taskbar_visible: bool = True

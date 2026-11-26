@@ -255,9 +255,9 @@ class MainWindow(QMainWindow):
         self._style_top_tailscale_btn(self.net_manager.tailscale_enabled)
         controls_flow.addWidget(self.btn_tailscale)
 
-        # Re-Scan Network Button
-        self.btn_rescan = WrapButton("🔄 Re-Scan")
-        self.btn_rescan.setToolTip("Re-scan all online Tailscale Tailnet peers (Linux, Windows, macOS) & local LAN for GPU machines")
+        # Refresh Tailnet Devices Button
+        self.btn_rescan = WrapButton("🔄 Refresh Tailnet")
+        self.btn_rescan.setToolTip("Refresh & re-scan all online Tailscale Tailnet peers (Linux, Windows, macOS) & local LAN for GPU machines")
         self.btn_rescan.clicked.connect(self._on_rescan_network)
         controls_flow.addWidget(self.btn_rescan)
 
@@ -440,15 +440,15 @@ class MainWindow(QMainWindow):
     def _on_rescan_network(self):
         if not self.net_manager.tailscale_enabled:
             self.net_manager.set_tailscale_enabled(True)
-        self.btn_rescan.setText("🔄 Scanning...")
+        self.btn_rescan.setText("🔄 Refreshing...")
         self.net_manager.rescan_network()
 
     def _on_tailnet_scan_status(self, msg: str):
         if msg:
-            self.btn_rescan.setText("🔄 Scanning...")
+            self.btn_rescan.setText("🔄 Refreshing...")
             self.lbl_footer_status.setText(msg)
         else:
-            self.btn_rescan.setText("🔄 Re-Scan")
+            self.btn_rescan.setText("🔄 Refresh Tailnet")
             self._update_gpu_count_labels()
 
     def _on_tailscale_enabled_changed(self, enabled: bool):
@@ -529,6 +529,10 @@ class MainWindow(QMainWindow):
         self.act_tailscale.setChecked(self.net_manager.tailscale_enabled)
         self.act_tailscale.triggered.connect(lambda c: self.net_manager.set_tailscale_enabled(c))
         tray_menu.addAction(self.act_tailscale)
+
+        act_refresh_tailnet = QAction("🔄 Refresh Tailnet Devices", self)
+        act_refresh_tailnet.triggered.connect(self._on_rescan_network)
+        tray_menu.addAction(act_refresh_tailnet)
 
         tray_menu.addSeparator()
 
