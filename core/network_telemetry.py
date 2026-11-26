@@ -679,14 +679,23 @@ class NetworkTelemetryManager(QObject):
         Queries `tailscale status --json` and probes online Linux/Windows peers in parallel
         to automatically discover machines equipped with GPUs across the Tailnet.
         """
-        creationflags = 0x08000000 if sys.platform == "win32" else 0
+        win_kw = {}
+        if sys.platform == "win32":
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0  # SW_HIDE
+            win_kw = {
+                "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+                "startupinfo": si,
+            }
         try:
             proc = subprocess.run(
                 ["tailscale", "status", "--json"],
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=3.0,
-                creationflags=creationflags,
+                **win_kw,
             )
             if proc.returncode != 0 or not proc.stdout:
                 return
@@ -1051,6 +1060,8 @@ class NetworkTelemetryManager(QObject):
         null_hosts = "NUL" if sys.platform == "win32" else "/dev/null"
         ssh_args = [
             "ssh",
+            "-T",
+            "-n",
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=8",
             "-o", "ServerAliveInterval=5",
@@ -1062,14 +1073,28 @@ class NetworkTelemetryManager(QObject):
             REMOTE_LINUX_SH_PROBE,
         ]
         try:
-            creationflags = 0x08000000 if sys.platform == "win32" else 0
+            win_kw = {}
+            env = os.environ.copy()
+            env["SSH_ASKPASS_REQUIRE"] = "never"
+            env.pop("DISPLAY", None)
+            if sys.platform == "win32":
+                # Use STARTUPINFO(SW_HIDE) WITHOUT CREATE_NO_WINDOW for Win32-OpenSSH:
+                # passing CREATE_NO_WINDOW causes C:\Windows\System32\OpenSSH\ssh.exe
+                # to call AllocConsole() and flash a visible black console window.
+                # With SW_HIDE + default console creation, ssh gets a hidden console
+                # and never flashes a window.
+                si = subprocess.STARTUPINFO()
+                si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                si.wShowWindow = 0  # SW_HIDE
+                win_kw = {"startupinfo": si}
             proc = subprocess.run(
                 ssh_args,
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=12.0,
-                creationflags=creationflags,
+                env=env,
+                **win_kw,
             )
             if proc.returncode != 0:
                 state.online = False
