@@ -384,26 +384,71 @@ class UpdateManager(QObject):
             new_exe = found_exe
 
         current_exe = os.path.abspath(sys.executable)
+        current_dir = os.path.dirname(current_exe)
+        old_exe = current_exe + ".old"
         pid = os.getpid()
+        ppid = os.getppid()
         script_path = os.path.join(tmp_dir, "apply_update.ps1")
+        # Wait for BOTH Python child (pid) and PyInstaller --onefile bootloader parent (ppid),
+        # retry replacing the exe cleanly (with .old rename fallback), clear all PyInstaller
+        # env vars so the relaunched --onefile binary unpacks fresh, and launch via Start-Process.
         ps_script = f"""
 $ErrorActionPreference = 'SilentlyContinue'
-$pidToWait = {pid}
-for ($i = 0; $i -lt 40; $i++) {{
-    if (-not (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue)) {{ break }}
-    Start-Sleep -Milliseconds 250
+foreach ($p in @({pid}, {ppid})) {{
+    if ($p -gt 0) {{
+        for ($i = 0; $i -lt 60; $i++) {{
+            if (-not (Get-Process -Id $p -ErrorAction SilentlyContinue)) {{ break }}
+            Start-Sleep -Milliseconds 250
+        }}
+    }}
 }}
-Copy-Item -LiteralPath '{new_exe}' -Destination '{current_exe}' -Force
-Start-Process -FilePath '{current_exe}'
-Remove-Item -LiteralPath '{tmp_dir}' -Recurse -Force
+
+$replaced = $false
+for ($attempt = 0; $attempt -lt 30; $attempt++) {{
+    try {{
+        if (Test-Path -LiteralPath '{old_exe}') {{
+            Remove-Item -LiteralPath '{old_exe}' -Force -ErrorAction SilentlyContinue
+        }}
+        if (Test-Path -LiteralPath '{current_exe}') {{
+            Move-Item -LiteralPath '{current_exe}' -Destination '{old_exe}' -Force -ErrorAction Stop
+        }}
+        Copy-Item -LiteralPath '{new_exe}' -Destination '{current_exe}' -Force -ErrorAction Stop
+        $replaced = $true
+        break
+    }} catch {{
+        Start-Sleep -Milliseconds 300
+    }}
+}}
+
+# Clear inherited PyInstaller env vars so the new --onefile exe starts cleanly
+Get-ChildItem Env: | Where-Object {{ $_.Name -like '_PYI_*' -or $_.Name -like '_MEIPASS*' }} | ForEach-Object {{
+    Remove-Item "Env:$($_.Name)" -ErrorAction SilentlyContinue
+}}
+
+if (Test-Path -LiteralPath '{current_exe}') {{
+    Start-Process -FilePath '{current_exe}' -WorkingDirectory '{current_dir}'
+}}
+Start-Sleep -Seconds 2
+Remove-Item -LiteralPath '{old_exe}' -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath '{tmp_dir}' -Recurse -Force -ErrorAction SilentlyContinue
 """
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(ps_script)
 
+        # Strip PyInstaller env vars from the updater helper's environment too
+        clean_env = {
+            k: v for k, v in os.environ.items()
+            if not k.startswith("_PYI_") and not k.startswith("_MEIPASS")
+        }
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0  # SW_HIDE
         creationflags = 0x08000000 | 0x00000008  # CREATE_NO_WINDOW | DETACHED_PROCESS
         subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script_path],
             creationflags=creationflags,
+            startupinfo=si,
+            env=clean_env,
             close_fds=True,
         )
         self.status_changed.emit(f"Installing v{rel.version} and restarting...")

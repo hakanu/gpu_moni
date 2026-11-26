@@ -201,6 +201,15 @@ def main():
     # GUI mode: detach any auto-spawned console window before launching Qt
     detach_unwanted_console()
 
+    # Clean up leftover .old binary from a previous frozen self-update
+    if getattr(sys, "frozen", False):
+        try:
+            old_bin = os.path.abspath(sys.executable) + ".old"
+            if os.path.isfile(old_bin):
+                os.remove(old_bin)
+        except Exception:
+            pass
+
     # Load user settings early so UI scale can be applied before QApplication init
     from core.settings import get_settings
     app_settings = get_settings()
