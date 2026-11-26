@@ -17,7 +17,7 @@ Built specifically for multi-GPU workstations, Ubuntu AI/ROCm servers, and LAN/T
 ## 📑 Table of Contents
 
 - [✨ Key Features](#-key-features)
-- [📦 Install & Update with `uv` (Git Repository)](#-install--update-with-uv-git-repository)
+- [📦 Install & Auto-Update (GitHub Releases or `uv`)](#-install--auto-update-github-releases-or-uv)
 - [🚀 Quick Start](#-quick-start)
   - [🐧 Ubuntu & Linux Setup (AMD Radeon / NVIDIA / Intel)](#-ubuntu--linux-setup-amd-radeon--nvidia--intel)
   - [🪟 Windows Setup](#-windows-setup)
@@ -76,21 +76,22 @@ Built specifically for multi-GPU workstations, Ubuntu AI/ROCm servers, and LAN/T
 
 ### Option 1: Standalone Windows GUI App (Recommended for Windows — Zero Console, Auto-Updates)
 
-Download the latest **`gpu-sentry-windows-x64.exe`** (or `.zip`) from **[GitHub Releases](https://github.com/hakanu/gpu_moni/releases/latest)** — no Python installation required, no background terminal window, and built-in automatic updates with SHA256 verification:
+Download the latest **`gpu-sentry-windows-x64.exe`** (or `.zip`) from **[GitHub Releases](https://github.com/hakanu/gpu_moni/releases/latest)** — no Python installation required, no background terminal window, and built-in automatic updates with `SHA256SUMS.txt` verification:
 
 ```powershell
 # PowerShell one-liner: install standalone Windows GUI exe to %LOCALAPPDATA%\GPUSentry
 $dir = "$env:LOCALAPPDATA\GPUSentry"; New-Item -ItemType Directory -Force -Path $dir | Out-Null
 Invoke-WebRequest -Uri "https://github.com/hakanu/gpu_moni/releases/latest/download/gpu-sentry-windows-x64.exe" -OutFile "$dir\gpu-sentry.exe" -UseBasicParsing
 Start-Process "$dir\gpu-sentry.exe" -ArgumentList "--install-shortcut" -Wait
+Start-Process "$dir\gpu-sentry.exe" -ArgumentList "--autostart" -Wait
 Start-Process "$dir\gpu-sentry.exe"
 ```
 
-Auto-updates can be toggled or triggered anytime under **⚙ Settings → Updates**.
+Auto-updates can be toggled or triggered anytime under **⚙ Settings → Updates** (automatically waits for the PyInstaller bootloader parent to exit, performs an atomic `.exe` swap, clears inherited `_PYI_*` environment variables, and relaunches cleanly).
 
-### Option 2: Install & Update with `uv` (Windows & Linux)
+### Option 2: Install & Auto-Update with `uv` (Ubuntu, Linux, macOS & Windows)
 
-GPU Sentry is also packaged as a standard PEP 621 tool with entry points (`gpu-sentry`, `gpu-sentry-gui`, `gpu-sentry-tui`, `gpu-sentry-cli`) so you can install and update it globally in an isolated virtual environment using [uv](https://docs.astral.sh/uv/).
+Every GitHub Release also publishes a cross-platform Python wheel (`gpu_sentry-*.whl`) and source distribution (`.tar.gz`). On **Ubuntu / Linux / macOS**, both the GUI auto-updater (**⚙ Settings → Updates**) and the CLI (`gpu-sentry --update`) automatically fetch the latest GitHub Release wheel and upgrade via `uv tool` (or `pip`), with automatic recovery if a `uv` tool venv is corrupted.
 
 ### 1. Install directly from GitHub with `uv`
 
@@ -473,13 +474,9 @@ rmdir /s /q "%APPDATA%\uv\tools\gpu-sentry"
 uv tool install --reinstall --force git+https://github.com/hakanu/gpu_moni.git
 ```
 
-### Q2: How do I update `gpu-sentry` on Windows when it is running in the System Tray / Taskbar Widget?
-Close `gpu-sentry` from the system tray (`Right-click tray icon -> Exit`) or stop it with `taskkill` first so Windows releases the lock on `gpu-sentry.exe`, then run the update:
-```powershell
-taskkill /F /IM gpu-sentry.exe 2>$null
-uv tool install --upgrade --reinstall --force git+https://github.com/hakanu/gpu_moni.git
-```
-*(On Linux/Ubuntu, open files can be replaced in-place, so `gpu-sentry --update` or `uv tool install --upgrade --reinstall --force git+https://github.com/hakanu/gpu_moni.git` works even while the app is running.)*
+### Q2: How does auto-updating work on Windows vs Linux?
+- **Standalone Windows GUI `.exe` (`%LOCALAPPDATA%\GPUSentry\gpu-sentry.exe`)**: Checks GitHub Releases automatically on startup (configurable under **⚙ Settings → Updates**), downloads the latest release asset, verifies its SHA256 against `SHA256SUMS.txt`, waits for both the app and PyInstaller bootloader parent to exit, atomically swaps the `.exe`, clears `_PYI_*` env vars, and relaunches silently.
+- **Linux / `uv tool` installs**: Click **⚙ Settings → Updates** in the GUI or run `gpu-sentry --update` in a terminal — it automatically pulls the latest GitHub Release `.whl` (falling back to `git+https://github.com/hakanu/gpu_moni.git`) via `uv tool install --upgrade --reinstall --force`. *(On Windows `uv tool` installs, close GPU Sentry from the system tray or run `taskkill /F /IM gpu-sentry.exe 2>$null` first so Windows releases the file lock.)*
 
 ### Q3: How do I turn off Tailscale GPU scanning/polling if I only want local GPUs?
 - **In the GUI**: Click the **`🦊 Tailscale: ON`** button in the top navigation bar (it turns into **`🦊 Tailscale: OFF`** and remembers your choice across restarts). You can also toggle individual remote machines `ON` or `OFF` inside the Network GPUs panel.
