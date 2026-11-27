@@ -1,5 +1,6 @@
 # GPU & System Sentry ⚡
 
+[![Website](https://img.shields.io/badge/website-hakanu.github.io%2Fgpu__moni-00e5ff)](https://hakanu.github.io/gpu_moni/)
 [![Release](https://img.shields.io/github/v/release/hakanu/gpu_moni?color=00e676)](https://github.com/hakanu/gpu_moni/releases/latest)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS%20(remote)-brightgreen.svg)]()
