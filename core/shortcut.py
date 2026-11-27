@@ -37,13 +37,16 @@ def _resolve_windows_gui_target() -> tuple[str, str, str]:
 
 
 def _resolve_icon_path() -> str:
-    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    ico = os.path.join(base_dir, "assets", "gpu_sentry.ico")
-    if os.path.isfile(ico):
-        return ico
+    """
+    Returns a permanent path containing the GPU Sentry icon.
+    For frozen PyInstaller --onefile builds, NEVER return sys._MEIPASS (which is
+    a temporary folder deleted on exit); return sys.executable itself because
+    the icon is permanently embedded at index 0.
+    """
     if getattr(sys, "frozen", False):
         return os.path.abspath(sys.executable)
-    return ico
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(root_dir, "assets", "gpu_sentry.ico")
 
 
 def get_start_menu_shortcut_path() -> str:

@@ -252,10 +252,26 @@ def main():
     app.setOrganizationName("Antigravity")
     app.setQuitOnLastWindowClosed(False)
 
-    # Global application icon
-    icon_path = get_resource_path(os.path.join("assets", "gpu_sentry.ico"))
-    if os.path.isfile(icon_path):
-        app.setWindowIcon(QIcon(icon_path))
+    # Global application icon (prefer PNG which is built into Qt6 core and never needs qico.dll)
+    app_icon = QIcon()
+    png_path = get_resource_path(os.path.join("assets", "gpu_sentry.png"))
+    ico_path = get_resource_path(os.path.join("assets", "gpu_sentry.ico"))
+    if os.path.isfile(png_path):
+        from PyQt6.QtGui import QPixmap
+        base_pix = QPixmap(png_path)
+        if not base_pix.isNull():
+            for sz in (16, 24, 32, 48, 64, 128, 256):
+                app_icon.addPixmap(
+                    base_pix.scaled(
+                        sz, sz,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+    if app_icon.isNull() and os.path.isfile(ico_path):
+        app_icon = QIcon(ico_path)
+    if not app_icon.isNull():
+        app.setWindowIcon(app_icon)
 
     start_condensed = True if "--condensed" in sys.argv else (False if "--expanded" in sys.argv else None)
     window = MainWindow(start_condensed=start_condensed)

@@ -671,9 +671,25 @@ class MainWindow(QMainWindow):
 
     def _create_app_icon(self) -> QIcon:
         base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        png_path = os.path.join(base_dir, "assets", "gpu_sentry.png")
         ico_path = os.path.join(base_dir, "assets", "gpu_sentry.ico")
+        if os.path.isfile(png_path):
+            base_pix = QPixmap(png_path)
+            if not base_pix.isNull():
+                icon = QIcon()
+                for sz in (16, 24, 32, 48, 64, 128, 256):
+                    icon.addPixmap(
+                        base_pix.scaled(
+                            sz, sz,
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation,
+                        )
+                    )
+                return icon
         if os.path.isfile(ico_path):
-            return QIcon(ico_path)
+            ic = QIcon(ico_path)
+            if not ic.isNull():
+                return ic
         pix = QPixmap(32, 32)
         pix.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pix)
