@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget, QLabel,
-    QCheckBox, QComboBox, QSpinBox, QPushButton, QFormLayout, QFrame,
+    QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QPushButton, QFormLayout, QFrame,
     QProgressBar, QMessageBox
 )
 from PyQt6.QtCore import Qt
@@ -35,6 +35,7 @@ class SettingsDialog(QDialog):
         updater: UpdateManager,
         net_manager=None,
         taskbar_widget=None,
+        energy_tracker=None,
         parent=None,
     ):
         super().__init__(parent)
@@ -42,6 +43,7 @@ class SettingsDialog(QDialog):
         self.updater = updater
         self.net_manager = net_manager
         self.taskbar_widget = taskbar_widget
+        self.energy_tracker = energy_tracker
         self.settings = get_settings()
         self._initial_scale = self.settings.data.ui_scale_percent
 
@@ -273,7 +275,38 @@ class SettingsDialog(QDialog):
         btn_open_logs.clicked.connect(lambda: (os.makedirs(log_dir, exist_ok=True), webbrowser.open(log_dir)))
         form.addRow("Log Folder:", btn_open_logs)
 
+        self.chk_energy = QCheckBox("Track local GPU energy burn (Today / 7-Day / 30-Day kWh)")
+        self.chk_energy.setChecked(sd.energy_tracking_enabled)
+        form.addRow("Energy Burn:", self.chk_energy)
+
+        rate_row = QHBoxLayout()
+        self.cb_currency = QComboBox()
+        for sym in ("$", "€", "£", "¥", "₺"):
+            self.cb_currency.addItem(sym, sym)
+        c_idx = self.cb_currency.findData(sd.energy_currency)
+        self.cb_currency.setCurrentIndex(c_idx if c_idx >= 0 else 0)
+        rate_row.addWidget(self.cb_currency)
+
+        self.sp_kwh_cost = QDoubleSpinBox()
+        self.sp_kwh_cost.setRange(0.0, 5.0)
+        self.sp_kwh_cost.setSingleStep(0.05)
+        self.sp_kwh_cost.setDecimals(2)
+        self.sp_kwh_cost.setSuffix(" / kWh")
+        self.sp_kwh_cost.setValue(float(sd.energy_cost_per_kwh))
+        rate_row.addWidget(self.sp_kwh_cost)
+
+        if self.energy_tracker is not None:
+            btn_reset_energy = WrapButton("🗑 Reset History")
+            btn_reset_energy.clicked.connect(self._reset_energy_history)
+            rate_row.addWidget(btn_reset_energy)
+        form.addRow("Electricity Rate:", rate_row)
+
         return w
+
+    def _reset_energy_history(self):
+        if self.energy_tracker is not None:
+            self.energy_tracker.reset()
+            QMessageBox.information(self, "Energy History Cleared", "Local GPU energy burn history has been reset.")
 
     def _build_taskbar_tab(self) -> QWidget:
         w = QWidget()
@@ -463,6 +496,9 @@ class SettingsDialog(QDialog):
             alert_node_offline=self.chk_alert_offline.isChecked(),
             logging_enabled=self.chk_logging.isChecked(),
             logging_format=str(self.cb_log_fmt.currentData()),
+            energy_tracking_enabled=self.chk_energy.isChecked(),
+            energy_cost_per_kwh=float(self.sp_kwh_cost.value()),
+            energy_currency=str(self.cb_currency.currentData()),
             notify=True,
         )
 

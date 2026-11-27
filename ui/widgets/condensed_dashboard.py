@@ -217,8 +217,21 @@ class CondensedDashboardWidget(QWidget):
         local_hdr.addWidget(self.lbl_local_title)
         local_hdr.addStretch()
         self.lbl_local_summary = QLabel("VRAM: 0.0/0.0 GB • 🔥 0.0 W")
-        self.lbl_local_summary.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px; font-weight: 700;")
+        self.lbl_local_summary.setStyleSheet(f"color: {Theme.TEMP_WARM}; font-size: 10px; font-weight: 700;")
         local_hdr.addWidget(self.lbl_local_summary)
+
+        self.lbl_energy_summary = QLabel("")
+        self.lbl_energy_summary.setStyleSheet(f"""
+            background-color: {Theme.TEMP_WARM}18;
+            color: {Theme.TEMP_WARM};
+            border: 1px solid {Theme.TEMP_WARM}44;
+            border-radius: 4px;
+            padding: 1px 7px;
+            font-size: 10px;
+            font-weight: 700;
+        """)
+        self.lbl_energy_summary.setVisible(False)
+        local_hdr.addWidget(self.lbl_energy_summary)
         local_outer.addLayout(local_hdr)
 
         self.local_rows_container = QWidget()
@@ -540,14 +553,27 @@ class CondensedDashboardWidget(QWidget):
             rl.addWidget(lbl_vram)
 
             lbl_therm = QLabel("🌡 --°C")
-            lbl_therm.setMinimumWidth(175)
+            lbl_therm.setMinimumWidth(145)
             lbl_therm.setStyleSheet(f"color: {Theme.TEMP_COOL}; font-size: 11px; font-weight: 700; border: none;")
-            rl.addWidget(lbl_therm, stretch=2)
+            rl.addWidget(lbl_therm, stretch=1)
 
-            lbl_pwr_clk = QLabel("🔥 -- W • -- MHz")
-            lbl_pwr_clk.setMinimumWidth(145)
-            lbl_pwr_clk.setStyleSheet(f"color: {Theme.TEMP_WARM}; font-size: 11px; font-weight: 700; border: none;")
-            rl.addWidget(lbl_pwr_clk, stretch=1)
+            lbl_pwr = QLabel("🔥 -- W")
+            lbl_pwr.setMinimumWidth(92)
+            lbl_pwr.setStyleSheet(f"""
+                background-color: {Theme.TEMP_WARM}18;
+                color: {Theme.TEMP_WARM};
+                border: 1px solid {Theme.TEMP_WARM}44;
+                border-radius: 4px;
+                padding: 1px 6px;
+                font-size: 11px;
+                font-weight: 800;
+            """)
+            rl.addWidget(lbl_pwr)
+
+            lbl_clk = QLabel("-- MHz")
+            lbl_clk.setMinimumWidth(95)
+            lbl_clk.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px; font-weight: 600; border: none;")
+            rl.addWidget(lbl_clk)
 
             self.local_rows_layout.addWidget(row_w)
             self._local_row_widgets[dev.device_id] = {
@@ -556,7 +582,8 @@ class CondensedDashboardWidget(QWidget):
                 "vram_bar": vram_bar,
                 "lbl_vram": lbl_vram,
                 "lbl_therm": lbl_therm,
-                "lbl_pwr_clk": lbl_pwr_clk,
+                "lbl_pwr": lbl_pwr,
+                "lbl_clk": lbl_clk,
             }
 
     def update_host_metrics(self, host_metrics: HostMetrics):
@@ -645,17 +672,38 @@ class CondensedDashboardWidget(QWidget):
             w["lbl_therm"].setStyleSheet(f"color: {t_col}; font-size: 11px; font-weight: 700; border: none;")
 
             if m.power_draw_w > 0:
-                p_s = f"🔥{m.power_draw_w:.0f}/{m.power_limit_w:.0f}W" if m.power_limit_w else f"🔥{m.power_draw_w:.1f}W"
+                p_s = f"🔥 {m.power_draw_w:.0f}/{m.power_limit_w:.0f}W" if m.power_limit_w else f"🔥 {m.power_draw_w:.1f}W"
             else:
-                p_s = "🔥--W"
-            c_s = f"{m.clock_graphics_mhz or '--'}/{m.clock_memory_mhz or '--'}MHz"
-            w["lbl_pwr_clk"].setText(f"{p_s} • {c_s}")
+                p_s = "🔥 -- W"
+            w["lbl_pwr"].setText(p_s)
+            c_s = f"{m.clock_graphics_mhz or '--'}/{m.clock_memory_mhz or '--'} MHz"
+            w["lbl_clk"].setText(c_s)
 
         self.lbl_local_summary.setText(f"VRAM: {tot_u:.1f}/{tot_t:.1f} GB • 🔥 {tot_w:.1f} W")
 
         # Refresh unified Local + Remote Active Workloads
         self._local_procs = [("Local", gpu_tag, p, True) for gpu_tag, p in all_procs]
         self._refresh_workloads_ui()
+
+    def update_energy_stats(self, enabled: bool, today_kwh: float, week_kwh: float, month_kwh: float, per_dev_7d: dict, cost_per_kwh: float, currency: str):
+        if not enabled:
+            self.lbl_energy_summary.setVisible(False)
+            return
+        cost_7d = week_kwh * cost_per_kwh
+        cost_str = f" (~{currency}{cost_7d:.2f})" if cost_per_kwh > 0 else ""
+        self.lbl_energy_summary.setText(f"⚡ Burn  Today: {today_kwh:.2f} kWh • 7d: {week_kwh:.2f} kWh{cost_str}")
+        tip_lines = [
+            f"<b>Local GPU Energy Burn History</b>",
+            f"Today: {today_kwh:.3f} kWh ({currency}{today_kwh * cost_per_kwh:.2f})",
+            f"Last 7 Days: {week_kwh:.3f} kWh ({currency}{cost_7d:.2f})",
+            f"Last 30 Days: {month_kwh:.3f} kWh ({currency}{month_kwh * cost_per_kwh:.2f})",
+        ]
+        if per_dev_7d:
+            tip_lines.append("<hr><b>Last 7 Days by GPU:</b>")
+            for _, (gname, dkwh) in sorted(per_dev_7d.items(), key=lambda x: -x[1][1]):
+                tip_lines.append(f"• {gname}: {dkwh:.3f} kWh ({currency}{dkwh * cost_per_kwh:.2f})")
+        self.lbl_energy_summary.setToolTip("<br>".join(tip_lines))
+        self.lbl_energy_summary.setVisible(True)
 
     def _kill_local_process(self, pid: int, label: str):
         import psutil

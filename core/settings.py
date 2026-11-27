@@ -66,6 +66,11 @@ class SettingsData:
     logging_format: str = "csv"  # "csv" or "jsonl"
     logging_dir: str = ""  # empty = ~/GPU_Sentry_Logs
 
+    # Optional Local Energy / Wattage History (kWh)
+    energy_tracking_enabled: bool = True
+    energy_cost_per_kwh: float = 0.25
+    energy_currency: str = "$"
+
 
 def format_temp(temp_c: float, unit: str = "C", show_unit: bool = True) -> str:
     """Formats a Celsius temperature into °C or °F."""

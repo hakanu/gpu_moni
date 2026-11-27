@@ -27,6 +27,7 @@ from core.monitor_worker import MonitorWorker
 from core.settings import get_settings, format_temp
 from core.alerts import AlertManager
 from core.telemetry_logger import SessionPeakTracker, TelemetryLogger
+from core.energy_tracker import EnergyTracker
 from core.updater import UpdateManager, ReleaseInfo
 from core.version import APP_VERSION
 from ui.theme import Theme, GLOBAL_STYLESHEET
@@ -99,10 +100,11 @@ class MainWindow(QMainWindow):
         self.is_paused = False
         self.always_on_top = bool(sd.always_on_top)
 
-        # Alerts, Session Peaks & CSV/JSONL Telemetry Logger
+        # Alerts, Session Peaks, Energy Burn Tracker & CSV/JSONL Logger
         self.alert_manager = AlertManager()
         self.peak_tracker = SessionPeakTracker()
         self.telemetry_logger = TelemetryLogger()
+        self.energy_tracker = EnergyTracker()
 
         # GitHub Releases Auto-Updater
         self.updater = UpdateManager(parent=self)
@@ -593,6 +595,7 @@ class MainWindow(QMainWindow):
             updater=self.updater,
             net_manager=self.net_manager,
             taskbar_widget=self.taskbar_widget,
+            energy_tracker=self.energy_tracker,
             parent=self,
         )
         dlg.exec()
@@ -862,8 +865,20 @@ class MainWindow(QMainWindow):
                 icon = QSystemTrayIcon.MessageIcon.Critical if level == "critical" else QSystemTrayIcon.MessageIcon.Warning
                 self.tray.showMessage(title, msg, icon, 4500)
 
-        # Optional CSV / JSONL telemetry logging
+        # Optional CSV / JSONL telemetry logging & local Energy Burn (kWh) tracking
         self.telemetry_logger.log_snapshot(all_devices, combined_metrics, self.latest_host_metrics)
+        self.energy_tracker.record_sample(all_devices, combined_metrics)
+        sd = self.app_settings.data
+        t_kwh, w_kwh, m_kwh = self.energy_tracker.get_totals_kwh()
+        self.condensed_dashboard.update_energy_stats(
+            enabled=sd.energy_tracking_enabled,
+            today_kwh=t_kwh,
+            week_kwh=w_kwh,
+            month_kwh=m_kwh,
+            per_dev_7d=self.energy_tracker.get_per_device_7d_kwh(),
+            cost_per_kwh=sd.energy_cost_per_kwh,
+            currency=sd.energy_currency,
+        )
 
         self.taskbar_widget.update_telemetry(self.latest_host_metrics, combined_metrics, self.latest_summary)
 
@@ -1086,6 +1101,7 @@ class MainWindow(QMainWindow):
             self.hide()
             return
 
+        self.energy_tracker.save(force=True)
         self.net_manager.stop()
         self.worker.stop()
         self.taskbar_widget.close()
