@@ -45,7 +45,7 @@ Update anytime with `gpu-sentry --update` (automatically pulls the latest GitHub
 | :--- | :--- |
 | **Multi-GPU Telemetry** | Native **NVIDIA** (NVML), **AMD** (Windows ADL + zero-dependency Linux `amdgpu` DRM/`hwmon`), **Intel** (`i915`/`xe`), and remote **Apple Silicon** (Metal `ioreg`). Tracks Load, VRAM/GTT, Core/Hotspot/Memory temps, Power vs TDP, Fan RPM/%, Clocks, and **Session Peaks**. |
 | **Smart GPU Workloads** | Identifies **what is keeping local & remote Tailscale GPUs busy** — extracts models & scripts (`🦙 Ollama (qwen3:32b)`, `⚡ vLLM`, `🦙 llama.cpp`, `🎨 ComfyUI`, `🔥 AI Training`, `🎬 FFmpeg`, `🎮 Games`) across Windows (NVML + PDH), Linux (NVIDIA + `amdgpu` `fdinfo`), and macOS, with 1-click **Kill Process** for local stuck jobs. |
-| **Alerts & Telemetry Logs** | Configurable desktop alerts for **High GPU Temp**, **VRAM Pressure**, and **Remote Node Offline** (with cooldowns), plus optional **CSV / JSONL** telemetry logging (`~/GPU_Sentry_Logs`). |
+| **Alerts & Local Logs** | Configurable desktop alerts for **High GPU Temp**, **VRAM Pressure**, and **Remote Node Offline** (with cooldowns), plus optional **local-only CSV / JSONL** hardware logs (`~/GPU_Sentry_Logs`). |
 | **CPU, RAM & Deep Specs** | CPU load, per-thread bars, clocks, package temp/wattage, RAM usage + SMBIOS DIMM breakdown (DDR5/DDR4 channels, MT/s, real MHz, XMP/EXPO, voltage), Motherboard/BIOS, PCIe/M.2 slots, and NVMe/SATA drives. |
 | **Flexible Views** | **⚡ Condensed View** (default — everything in one glance), **Full Cards View** (radial gauges + 60s sparklines), **Compact Mode**, **Windows Taskbar Widget** (docks next to the clock), and **24-bit TrueColor TUI** (`gpu-sentry-tui`, auto-fallback over SSH). |
 | **Responsive UI & Settings** | Wrapping toolbars & buttons (`FlowLayout` + `WrapButton`), saved window geometry, **UI Scale (`85%`–`150%`)**, **°C / °F** toggle, autostart, close-to-tray, and **GitHub Releases auto-updater** in **⚙ Settings**. |
@@ -113,6 +113,16 @@ Windows OpenSSH (`C:\Windows\System32\OpenSSH\ssh.exe`) has a known quirk: when 
 - **Virtual Desktops**: The main dashboard stays strictly on the virtual desktop where you open it (any legacy app-wide virtual desktop pin is automatically cleared on startup).
 - **Updating on Windows**: The standalone `.exe` self-updates cleanly in place. If using `uv tool` on Windows while the app is running, exit from the tray or run `taskkill /F /IM gpu-sentry.exe 2>$null` before upgrading.
 </details>
+
+---
+
+## 🔒 Privacy & Zero Tracking
+
+GPU Sentry has **zero analytics, zero user tracking, and zero phone-home**. All hardware metrics and optional CSV/JSONL logs stay strictly on your machine. The only network activity the app ever performs is:
+
+- **GitHub Releases update check** (`api.github.com/repos/hakanu/gpu_moni/releases/latest`, read-only — can be disabled in **⚙ Settings → Updates**).
+- **Localhost Ollama lookup** (`127.0.0.1:11434/api/ps` — loopback only, never leaves your machine).
+- **Your own LAN / Tailnet machines** (opt-in — Tailscale scanning is OFF by default on fresh installs).
 
 ---
 
