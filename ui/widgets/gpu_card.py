@@ -258,6 +258,11 @@ class GpuCard(QFrame):
         self.table_procs.setVisible(False)
         proc_layout.addWidget(self.table_procs)
 
+        self.lbl_peaks = QLabel("")
+        self.lbl_peaks.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 10px; font-weight: 600;")
+        self.lbl_peaks.setVisible(False)
+        proc_layout.addWidget(self.lbl_peaks)
+
         main_layout.addWidget(self.proc_container)
 
     def _toggle_proc_table(self):
@@ -333,20 +338,37 @@ class GpuCard(QFrame):
         if not self.is_compact:
             self._update_process_list(m.processes)
 
+    def update_session_peaks(self, peak_temp_c: float, peak_power_w: float, peak_vram_mb: float):
+        from core.settings import get_settings, format_temp
+        unit = get_settings().data.temp_unit
+        parts = []
+        if peak_temp_c > 0:
+            parts.append(f"Peak Temp: {format_temp(peak_temp_c, unit)}")
+        if peak_power_w > 0:
+            parts.append(f"Peak Power: {peak_power_w:.0f} W")
+        if peak_vram_mb > 0:
+            parts.append(f"Peak VRAM: {peak_vram_mb / 1024.0:.1f} GB")
+        if parts:
+            self.lbl_peaks.setText("📊 Session Peaks — " + " • ".join(parts))
+            self.lbl_peaks.setVisible(True)
+
     def _update_process_list(self, procs):
         cnt = len(procs)
         arrow = "▲" if self.table_procs.isVisible() else "▼"
-        self.btn_proc_toggle.setText(f"Active Processes ({cnt}) {arrow}")
+        self.btn_proc_toggle.setText(f"Active Workloads ({cnt}) {arrow}")
 
         if not self.table_procs.isVisible():
             return
 
         self.table_procs.setRowCount(cnt)
         for row, p in enumerate(procs):
-            name_item = QTableWidgetItem(p.name)
+            wl_name = p.workload_label or p.name
+            name_item = QTableWidgetItem(wl_name)
+            if p.cmdline:
+                name_item.setToolTip(p.cmdline)
             pid_item = QTableWidgetItem(str(p.pid))
-            type_item = QTableWidgetItem(p.process_type)
-            vram_txt = f"{p.memory_used_mb:.1f} MB" if p.memory_used_mb is not None else "Shared"
+            type_item = QTableWidgetItem(p.category or p.process_type)
+            vram_txt = f"{p.memory_used_mb / 1024.0:.1f} GB" if (p.memory_used_mb and p.memory_used_mb >= 1024) else (f"{p.memory_used_mb:.1f} MB" if p.memory_used_mb is not None else "Shared")
             vram_item = QTableWidgetItem(vram_txt)
 
             pid_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)

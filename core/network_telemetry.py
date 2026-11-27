@@ -90,6 +90,9 @@ except Exception:
   echo "===DRM==="
   echo "===MACOS==="
   ioreg -r -d 1 -w 0 -c IOAccelerator 2>/dev/null | grep -E '"model"|"gpu-core-count"|"PerformanceStatistics"|"IOSourceVersion"' || true
+  echo "===PROCS==="
+  (ollama ps 2>/dev/null | tail -n +2 | awk '{print "OLLAMA=" $1}') || true
+  ps -axo pid=,rss=,comm=,args= 2>/dev/null | grep -iE 'ollama|llama|mlx|vllm|comfy|python|blender|ffmpeg|lm.studio|whisper|torch' | grep -v grep | head -n 12 | sed 's/^/MACPROC=/' || true
 else
   hostname
   nproc 2>/dev/null || echo 1
@@ -131,6 +134,19 @@ else
     done
   done
   echo "===MACOS==="
+  echo "===PROCS==="
+  (ollama ps 2>/dev/null | tail -n +2 | awk '{print "OLLAMA=" $1}') || true
+  nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits 2>/dev/null | while IFS=, read -r npid nname nmem; do
+    npid=$(echo "$npid" | tr -d ' ')
+    [ -n "$npid" ] || continue
+    ncmd=$(tr '\0' ' ' < "/proc/$npid/cmdline" 2>/dev/null | cut -c1-180)
+    echo "NVPROC=${npid}|${nname}|${nmem}|${ncmd}"
+  done 2>/dev/null || true
+  grep -H 'drm-memory-vram:' /proc/[0-9]*/fdinfo/* 2>/dev/null | awk -F'[:/ \t]+' '{pid=$3; val=$NF; if(val+0>16384){if(val+0>max[pid])max[pid]=val+0}} END{for(p in max) print p, int(max[p]/1024)}' | head -n 12 | while read -r dpid dmb; do
+    dname=$(cat "/proc/$dpid/comm" 2>/dev/null || echo "proc")
+    dcmd=$(tr '\0' ' ' < "/proc/$dpid/cmdline" 2>/dev/null | cut -c1-180)
+    echo "DRMPROC=${dpid}|${dname}|${dmb}|${dcmd}"
+  done 2>/dev/null || true
 fi
 true
 """
@@ -999,6 +1015,11 @@ class NetworkTelemetryManager(QObject):
                         name=str(p.get("name", "")),
                         memory_used_mb=p.get("memory_used_mb"),
                         process_type=str(p.get("process_type", "Compute")),
+                        cmdline=str(p.get("cmdline", "")),
+                        workload_label=str(p.get("workload_label", "")),
+                        category=str(p.get("category", "")),
+                        host_name=state.hostname,
+                        gpu_name=str(g_raw.get("name", "Remote GPU")),
                     )
                     for p in m_raw.get("processes", [])
                 ]
@@ -1118,8 +1139,14 @@ class NetworkTelemetryManager(QObject):
             nv_sec = ""
             drm_sec = ""
             mac_sec = ""
-            if "===NVIDIA===" in out:
-                p1, rest = out.split("===NVIDIA===", 1)
+            procs_sec = ""
+            if "===PROCS===" in out:
+                out_main, procs_sec = out.split("===PROCS===", 1)
+            else:
+                out_main = out
+
+            if "===NVIDIA===" in out_main:
+                p1, rest = out_main.split("===NVIDIA===", 1)
                 host_sec = p1.split("===HOST===", 1)[-1]
                 if "===DRM===" in rest:
                     nv_sec, rest2 = rest.split("===DRM===", 1)
@@ -1481,6 +1508,93 @@ class NetworkTelemetryManager(QObject):
                     )
                     state.gpus.append(dev)
                     state.gpu_metrics[dev_id] = metrics
+
+            # 5. Parse Remote GPU Workloads / Processes Section (===PROCS===)
+            if procs_sec.strip() and state.gpus:
+                from core.workload_classifier import classify_workload
+
+                remote_ollama_models: List[str] = []
+                remote_procs: List[GpuProcess] = []
+                seen_rpids = set()
+
+                for line in procs_sec.splitlines():
+                    ln = line.strip()
+                    if ln.startswith("OLLAMA="):
+                        mname = ln.split("=", 1)[1].strip()
+                        if mname and mname not in remote_ollama_models:
+                            remote_ollama_models.append(mname)
+
+                for line in procs_sec.splitlines():
+                    ln = line.strip()
+                    if ln.startswith("NVPROC=") or ln.startswith("DRMPROC="):
+                        payload = ln.split("=", 1)[1]
+                        parts = payload.split("|", 3)
+                        if len(parts) < 3:
+                            continue
+                        try:
+                            pid = int(parts[0].strip())
+                        except Exception:
+                            continue
+                        if pid in seen_rpids:
+                            continue
+                        seen_rpids.add(pid)
+                        raw_name = os.path.basename(parts[1].strip())
+                        try:
+                            mem_mb = round(float(parts[2].strip()), 1)
+                        except Exception:
+                            mem_mb = None
+                        cmdline = parts[3].strip() if len(parts) > 3 else ""
+                        label, cat = classify_workload(raw_name, cmdline, ollama_models=remote_ollama_models)
+                        remote_procs.append(
+                            GpuProcess(
+                                pid=pid,
+                                name=raw_name,
+                                memory_used_mb=mem_mb if (mem_mb and mem_mb > 0) else None,
+                                process_type="Compute",
+                                cmdline=cmdline,
+                                workload_label=label,
+                                category=cat,
+                                host_name=state.hostname,
+                            )
+                        )
+                    elif ln.startswith("MACPROC="):
+                        payload = ln.split("=", 1)[1].strip()
+                        parts = payload.split(None, 3)
+                        if len(parts) < 3:
+                            continue
+                        try:
+                            pid = int(parts[0])
+                            rss_kb = float(parts[1])
+                        except Exception:
+                            continue
+                        if pid in seen_rpids or rss_kb < 32768:  # skip tiny <32MB helpers
+                            continue
+                        seen_rpids.add(pid)
+                        raw_name = os.path.basename(parts[2])
+                        cmdline = parts[3] if len(parts) > 3 else raw_name
+                        label, cat = classify_workload(raw_name, cmdline, ollama_models=remote_ollama_models)
+                        remote_procs.append(
+                            GpuProcess(
+                                pid=pid,
+                                name=raw_name,
+                                memory_used_mb=round(rss_kb / 1024.0, 1),
+                                process_type="Metal",
+                                cmdline=cmdline,
+                                workload_label=label,
+                                category=cat,
+                                host_name=state.hostname,
+                            )
+                        )
+
+                if remote_procs:
+                    remote_procs.sort(key=lambda p: p.memory_used_mb or 0.0, reverse=True)
+                    # Attach to the primary (highest VRAM) GPU on this remote host
+                    primary_dev = max(state.gpus, key=lambda d: d.vram_total_mb)
+                    for rp in remote_procs:
+                        rp.gpu_name = primary_dev.name
+                    primary_m = state.gpu_metrics.get(primary_dev.device_id)
+                    if primary_m:
+                        primary_m.processes = remote_procs[:10]
 
         except Exception as e:
             state.online = False

@@ -109,6 +109,7 @@ class SettingsDialog(QDialog):
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_general_tab(), "General")
         self.tabs.addTab(self._build_monitoring_tab(), "Monitoring")
+        self.tabs.addTab(self._build_alerts_logs_tab(), "Alerts & Logs")
         self.tabs.addTab(self._build_taskbar_tab(), "Taskbar Widget")
         self.tabs.addTab(self._build_updates_tab(), "Updates")
         root.addWidget(self.tabs, stretch=1)
@@ -222,6 +223,55 @@ class SettingsDialog(QDialog):
         pin_val = self.net_manager.pin_remote_cards if self.net_manager else True
         self.chk_pin_remote.setChecked(pin_val)
         form.addRow("Remote GPUs:", self.chk_pin_remote)
+
+        return w
+
+    def _build_alerts_logs_tab(self) -> QWidget:
+        import os
+        from core.telemetry_logger import DEFAULT_LOG_DIR
+
+        w = QWidget()
+        form = QFormLayout(w)
+        form.setSpacing(10)
+        form.setContentsMargins(12, 12, 12, 12)
+        sd = self.settings.data
+
+        self.chk_alerts = QCheckBox("Enable desktop notifications for GPU alerts")
+        self.chk_alerts.setChecked(sd.alerts_enabled)
+        form.addRow("Alerts:", self.chk_alerts)
+
+        self.sp_alert_temp = QSpinBox()
+        self.sp_alert_temp.setRange(50, 110)
+        self.sp_alert_temp.setSuffix(" °C")
+        self.sp_alert_temp.setValue(int(sd.alert_temp_c))
+        form.addRow("High Temp Alert:", self.sp_alert_temp)
+
+        self.sp_alert_vram = QSpinBox()
+        self.sp_alert_vram.setRange(50, 100)
+        self.sp_alert_vram.setSuffix(" %")
+        self.sp_alert_vram.setValue(int(sd.alert_vram_pct))
+        form.addRow("High VRAM Alert:", self.sp_alert_vram)
+
+        self.chk_alert_offline = QCheckBox("Notify when a remote Tailnet / LAN GPU node goes offline")
+        self.chk_alert_offline.setChecked(sd.alert_node_offline)
+        form.addRow("Node Offline:", self.chk_alert_offline)
+
+        self.chk_logging = QCheckBox("Record live telemetry snapshots to disk")
+        self.chk_logging.setChecked(sd.logging_enabled)
+        form.addRow("Telemetry Log:", self.chk_logging)
+
+        self.cb_log_fmt = QComboBox()
+        self.cb_log_fmt.addItem("CSV (Excel / Pandas friendly)", "csv")
+        self.cb_log_fmt.addItem("JSONL (Structured per-tick)", "jsonl")
+        f_idx = self.cb_log_fmt.findData(sd.logging_format)
+        self.cb_log_fmt.setCurrentIndex(f_idx if f_idx >= 0 else 0)
+        form.addRow("Log Format:", self.cb_log_fmt)
+
+        log_dir = (sd.logging_dir or "").strip() or DEFAULT_LOG_DIR
+        btn_open_logs = WrapButton("📂 Open Logs Folder")
+        btn_open_logs.setToolTip(log_dir)
+        btn_open_logs.clicked.connect(lambda: (os.makedirs(log_dir, exist_ok=True), webbrowser.open(log_dir)))
+        form.addRow("Log Folder:", btn_open_logs)
 
         return w
 
@@ -407,6 +457,12 @@ class SettingsDialog(QDialog):
             taskbar_topmost=self.chk_tb_topmost.isChecked(),
             auto_check_updates=self.chk_auto_check.isChecked(),
             auto_install_updates=self.chk_auto_install.isChecked(),
+            alerts_enabled=self.chk_alerts.isChecked(),
+            alert_temp_c=int(self.sp_alert_temp.value()),
+            alert_vram_pct=int(self.sp_alert_vram.value()),
+            alert_node_offline=self.chk_alert_offline.isChecked(),
+            logging_enabled=self.chk_logging.isChecked(),
+            logging_format=str(self.cb_log_fmt.currentData()),
             notify=True,
         )
 

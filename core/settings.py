@@ -54,6 +54,18 @@ class SettingsData:
     skipped_version: str = ""
     last_update_check: float = 0.0
 
+    # Alerts & Notifications
+    alerts_enabled: bool = True
+    alert_temp_c: int = 85
+    alert_vram_pct: int = 95
+    alert_node_offline: bool = True
+    alert_cooldown_sec: int = 120
+
+    # Telemetry Logging (CSV / JSONL)
+    logging_enabled: bool = False
+    logging_format: str = "csv"  # "csv" or "jsonl"
+    logging_dir: str = ""  # empty = ~/GPU_Sentry_Logs
+
 
 def format_temp(temp_c: float, unit: str = "C", show_unit: bool = True) -> str:
     """Formats a Celsius temperature into °C or °F."""

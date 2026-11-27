@@ -56,6 +56,52 @@ jobs:
             dist/gpu-sentry-windows-x64.exe
             dist/gpu-sentry-windows-x64.zip
 
+  build-linux:
+    name: Build Standalone Linux Binary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system Qt6/X11 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libxkbcommon0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install build dependencies
+        run: |
+          uv venv --python 3.12
+          uv pip install PyQt6 psutil pyinstaller
+
+      - name: Build Linux standalone binary
+        run: |
+          .venv/bin/pyinstaller \
+            --noconfirm \
+            --onefile \
+            --name gpu-sentry-linux-x64 \
+            --add-data "assets:assets" \
+            --collect-submodules core \
+            --collect-submodules ui \
+            main.py
+          tar -czf dist/gpu-sentry-linux-x64.tar.gz -C dist gpu-sentry-linux-x64
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-dist
+          path: |
+            dist/gpu-sentry-linux-x64
+            dist/gpu-sentry-linux-x64.tar.gz
+
   build-python-dist:
     name: Build Python Wheel & Sdist (Windows / Linux / uv)
     runs-on: ubuntu-latest
@@ -80,7 +126,7 @@ jobs:
 
   publish-release:
     name: Publish GitHub Release
-    needs: [build-windows, build-python-dist]
+    needs: [build-windows, build-linux, build-python-dist]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts

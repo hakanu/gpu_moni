@@ -25,6 +25,8 @@ from core.hardware_info import HardwareInfoCollector
 from core.network_telemetry import NetworkTelemetryManager, RemoteNodeState
 from core.monitor_worker import MonitorWorker
 from core.settings import get_settings, format_temp
+from core.alerts import AlertManager
+from core.telemetry_logger import SessionPeakTracker, TelemetryLogger
 from core.updater import UpdateManager, ReleaseInfo
 from core.version import APP_VERSION
 from ui.theme import Theme, GLOBAL_STYLESHEET
@@ -96,6 +98,11 @@ class MainWindow(QMainWindow):
         self.is_compact = bool(sd.compact_mode)
         self.is_paused = False
         self.always_on_top = bool(sd.always_on_top)
+
+        # Alerts, Session Peaks & CSV/JSONL Telemetry Logger
+        self.alert_manager = AlertManager()
+        self.peak_tracker = SessionPeakTracker()
+        self.telemetry_logger = TelemetryLogger()
 
         # GitHub Releases Auto-Updater
         self.updater = UpdateManager(parent=self)
@@ -800,6 +807,12 @@ class MainWindow(QMainWindow):
             if dev_id in self.remote_cards:
                 self.remote_cards[dev_id].update_metrics(m)
 
+        # Evaluate remote node offline alerts
+        for title, msg, level in self.alert_manager.evaluate_remote_nodes(states):
+            if self.tray.isVisible():
+                icon = QSystemTrayIcon.MessageIcon.Critical if level == "critical" else QSystemTrayIcon.MessageIcon.Warning
+                self.tray.showMessage(title, msg, icon, 4500)
+
         self._update_gpu_count_labels()
 
     def _update_gpu_count_labels(self):
@@ -834,6 +847,24 @@ class MainWindow(QMainWindow):
         self.net_manager.update_local_telemetry(self.local_devices, metrics_by_id, self.latest_host_metrics)
 
         combined_metrics = {**metrics_by_id, **self.remote_metrics}
+        all_devices = self.local_devices + self.remote_devices
+
+        # Update session peaks & push to GPU cards
+        self.peak_tracker.update(combined_metrics)
+        for dev_id, card in {**self.cards, **self.remote_cards}.items():
+            pk = self.peak_tracker.get(dev_id)
+            if pk and hasattr(card, "update_session_peaks"):
+                card.update_session_peaks(pk.peak_temp_c, pk.peak_power_w, pk.peak_vram_mb)
+
+        # Evaluate thermal & VRAM alerts
+        for title, msg, level in self.alert_manager.evaluate_gpus(all_devices, combined_metrics):
+            if self.tray.isVisible():
+                icon = QSystemTrayIcon.MessageIcon.Critical if level == "critical" else QSystemTrayIcon.MessageIcon.Warning
+                self.tray.showMessage(title, msg, icon, 4500)
+
+        # Optional CSV / JSONL telemetry logging
+        self.telemetry_logger.log_snapshot(all_devices, combined_metrics, self.latest_host_metrics)
+
         self.taskbar_widget.update_telemetry(self.latest_host_metrics, combined_metrics, self.latest_summary)
 
         unit = self.app_settings.data.temp_unit

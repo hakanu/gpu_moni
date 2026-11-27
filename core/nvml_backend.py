@@ -260,8 +260,11 @@ class NvmlBackend:
         return metrics
 
     def _get_processes(self, handle) -> List[GpuProcess]:
+        from core.workload_classifier import enrich_local_process, get_local_ollama_models
+
         procs_list: List[GpuProcess] = []
         seen_pids = set()
+        ollama_models = get_local_ollama_models()
 
         max_procs = 64
         proc_arr = (_ProcessInfo * max_procs)()
@@ -280,7 +283,8 @@ class NvmlBackend:
                     mem_mb = None
                     if mem_used > 0 and mem_used < 0x00000FFFFFFFFFFF:
                         mem_mb = round(mem_used / (1024 * 1024), 1)
-                    procs_list.append(GpuProcess(pid=pid, name=pname, memory_used_mb=mem_mb, process_type="Compute"))
+                    gp = GpuProcess(pid=pid, name=pname, memory_used_mb=mem_mb, process_type="Compute")
+                    procs_list.append(enrich_local_process(gp, ollama_models=ollama_models))
 
         # Query graphics processes
         proc_count_g = ctypes.c_uint(max_procs)
@@ -297,7 +301,8 @@ class NvmlBackend:
                     mem_mb = None
                     if mem_used > 0 and mem_used < 0x00000FFFFFFFFFFF:
                         mem_mb = round(mem_used / (1024 * 1024), 1)
-                    procs_list.append(GpuProcess(pid=pid, name=pname, memory_used_mb=mem_mb, process_type="Graphics"))
+                    gp = GpuProcess(pid=pid, name=pname, memory_used_mb=mem_mb, process_type="Graphics")
+                    procs_list.append(enrich_local_process(gp, ollama_models=ollama_models))
 
         return procs_list
 

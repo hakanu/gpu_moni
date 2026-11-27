@@ -58,6 +58,8 @@ class CondensedDashboardWidget(QWidget):
         self.local_metrics: Dict[str, GpuMetrics] = {}
         self.host_metrics: Optional[HostMetrics] = None
         self._local_row_widgets: Dict[str, dict] = {}
+        self._local_procs: List[tuple] = []
+        self._remote_procs: List[tuple] = []
 
         self._setup_ui()
         self.net_manager.nodes_updated.connect(self.update_network_nodes)
@@ -327,17 +329,24 @@ class CondensedDashboardWidget(QWidget):
         bot_outer.setContentsMargins(10, 6, 10, 6)
         bot_outer.setSpacing(4)
 
-        # Processes Row
+        # Processes / Active Workloads Section (Local + Remote Tailscale)
         proc_hdr = QHBoxLayout()
         proc_hdr.setSpacing(8)
         self.lbl_procs_title = QLabel("⚙ ACTIVE GPU WORKLOADS (0)")
         self.lbl_procs_title.setStyleSheet(f"color: {Theme.CYBER_CYAN}; font-size: 10px; font-weight: 800;")
         proc_hdr.addWidget(self.lbl_procs_title)
 
-        self.lbl_procs_inline = QLabel("No active compute/graphics GPU processes.")
-        self.lbl_procs_inline.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px; font-weight: 600;")
+        self.lbl_procs_inline = QLabel("No active compute/graphics GPU workloads.")
+        self.lbl_procs_inline.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 10px; font-weight: 600;")
         proc_hdr.addWidget(self.lbl_procs_inline, stretch=1)
         bot_outer.addLayout(proc_hdr)
+
+        self.workloads_container = QWidget()
+        self.workloads_layout = QVBoxLayout(self.workloads_container)
+        self.workloads_layout.setContentsMargins(0, 2, 0, 2)
+        self.workloads_layout.setSpacing(3)
+        self.workloads_container.setVisible(False)
+        bot_outer.addWidget(self.workloads_container)
 
         # Hardware Specs Summary Strip
         hw_row = QHBoxLayout()
@@ -644,16 +653,104 @@ class CondensedDashboardWidget(QWidget):
 
         self.lbl_local_summary.setText(f"VRAM: {tot_u:.1f}/{tot_t:.1f} GB • 🔥 {tot_w:.1f} W")
 
-        # Update processes inline summary
-        self.lbl_procs_title.setText(f"⚙ ACTIVE GPU WORKLOADS ({len(all_procs)})")
-        if all_procs:
-            proc_strs = []
-            for gpu_tag, p in all_procs[:5]:
-                mem_s = f" ({p.memory_used_mb:.0f}MB)" if p.memory_used_mb else ""
-                proc_strs.append(f"[{gpu_tag}] {p.name} (PID {p.pid}, {p.process_type}{mem_s})")
-            self.lbl_procs_inline.setText("   •   ".join(proc_strs))
-        else:
-            self.lbl_procs_inline.setText("No active compute/graphics GPU processes.")
+        # Refresh unified Local + Remote Active Workloads
+        self._local_procs = [("Local", gpu_tag, p, True) for gpu_tag, p in all_procs]
+        self._refresh_workloads_ui()
+
+    def _kill_local_process(self, pid: int, label: str):
+        import psutil
+        from PyQt6.QtWidgets import QMessageBox
+
+        reply = QMessageBox.question(
+            self,
+            "Terminate GPU Workload",
+            f"Terminate local process:\n\n{label}\nPID: {pid}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                proc = psutil.Process(pid)
+                proc.terminate()
+            except Exception as e:
+                QMessageBox.warning(self, "Could Not Terminate", f"Failed to terminate PID {pid}: {e}")
+
+    def _refresh_workloads_ui(self):
+        combined = self._local_procs + self._remote_procs
+        # Sort by VRAM usage descending, prioritize AI/LLM & Compute workloads
+        combined.sort(key=lambda item: (item[2].memory_used_mb or 0.0), reverse=True)
+
+        self.lbl_procs_title.setText(f"⚙ ACTIVE GPU WORKLOADS ({len(combined)})")
+        self._clear_layout(self.workloads_layout)
+
+        if not combined:
+            self.lbl_procs_inline.setText("No active compute/graphics GPU workloads.")
+            self.lbl_procs_inline.setVisible(True)
+            self.workloads_container.setVisible(False)
+            return
+
+        self.lbl_procs_inline.setVisible(False)
+        self.workloads_container.setVisible(True)
+
+        for host_tag, gpu_tag, p, is_local in combined[:8]:
+            row = QFrame()
+            row.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {Theme.BG_ROOT};
+                    border: 1px solid {Theme.BORDER_DEFAULT};
+                    border-radius: 5px;
+                }}
+            """)
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(8, 3, 6, 3)
+            rl.setSpacing(8)
+
+            badge_col = Theme.NVIDIA_GREEN if is_local else Theme.CYBER_PURPLE
+            lbl_host = QLabel(f"{host_tag} • {gpu_tag}")
+            lbl_host.setStyleSheet(f"color: {badge_col}; font-size: 10px; font-weight: 800; border: none;")
+            rl.addWidget(lbl_host)
+
+            wl_text = p.workload_label or p.name
+            lbl_wl = QLabel(wl_text)
+            lbl_wl.setToolTip(p.cmdline or p.name)
+            lbl_wl.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 700; border: none;")
+            rl.addWidget(lbl_wl, stretch=1)
+
+            if p.memory_used_mb and p.memory_used_mb > 0:
+                mem_s = f"{p.memory_used_mb / 1024.0:.1f} GB" if p.memory_used_mb >= 1024 else f"{p.memory_used_mb:.0f} MB"
+            else:
+                mem_s = "--"
+            lbl_mem = QLabel(f"💾 {mem_s}")
+            lbl_mem.setStyleSheet(f"color: {Theme.CYBER_CYAN}; font-size: 10px; font-weight: 700; border: none;")
+            rl.addWidget(lbl_mem)
+
+            lbl_pid = QLabel(f"PID {p.pid}")
+            lbl_pid.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 10px; border: none;")
+            rl.addWidget(lbl_pid)
+
+            if is_local and p.pid > 4:
+                btn_kill = QPushButton("✕")
+                btn_kill.setFixedSize(20, 18)
+                btn_kill.setToolTip(f"Terminate local process {wl_text} (PID {p.pid})")
+                btn_kill.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: transparent;
+                        border: 1px solid {Theme.BORDER_DEFAULT};
+                        border-radius: 3px;
+                        color: {Theme.TEXT_MUTED};
+                        font-size: 9px;
+                        font-weight: 800;
+                        padding: 0px;
+                    }}
+                    QPushButton:hover {{
+                        border-color: {Theme.TEMP_CRITICAL};
+                        color: {Theme.TEMP_CRITICAL};
+                    }}
+                """)
+                btn_kill.clicked.connect(lambda checked=False, pid=p.pid, lbl=wl_text: self._kill_local_process(pid, lbl))
+                rl.addWidget(btn_kill)
+
+            self.workloads_layout.addWidget(row)
 
     def update_network_nodes(self, states: Dict[str, RemoteNodeState]):
         self._clear_layout(self.net_rows_layout)
@@ -676,6 +773,20 @@ class CondensedDashboardWidget(QWidget):
             self.lbl_net_summary.setText("— Tailscale Monitoring OFF")
         else:
             self.lbl_net_summary.setText("— Scanning / Idle")
+
+        # Collect remote GPU workloads for unified Active Workloads panel
+        rem_procs = []
+        for st in states.values():
+            if not st.online:
+                continue
+            for dev in st.gpus:
+                m = st.gpu_metrics.get(dev.device_id, dev.metrics)
+                short_gpu = dev.name.split("]")[-1].strip() if "]" in dev.name else dev.name
+                short_gpu = short_gpu.replace("NVIDIA GeForce ", "").replace("AMD Radeon ", "")[:18]
+                for p in m.processes:
+                    rem_procs.append((f"🌐 {st.hostname}", short_gpu, p, False))
+        self._remote_procs = rem_procs
+        self._refresh_workloads_ui()
 
         if not self.net_manager.tailscale_enabled and not states:
             lbl = QLabel("🦊 Tailscale GPU monitoring is turned OFF. Click '🦊 Tailscale: OFF' above to enable.")

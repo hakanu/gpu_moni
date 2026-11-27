@@ -121,6 +121,7 @@ class DxgiBackend:
         self.pdh = None
         self.hQuery = None
         self.hCounterMem = None
+        self.hCounterProcMem = None
         if not hasattr(ctypes, "windll"):
             return
         try:
@@ -133,7 +134,12 @@ class DxgiBackend:
                     self.hQuery, r"\GPU Adapter Memory(*)\Dedicated Usage", 0, ctypes.byref(hC)
                 ) == 0:
                     self.hCounterMem = hC
-                    self.pdh.PdhCollectQueryData(self.hQuery)
+                hCp = ctypes.c_void_p()
+                if self.pdh.PdhAddEnglishCounterW(
+                    self.hQuery, r"\GPU Process Memory(*)\Dedicated Usage", 0, ctypes.byref(hCp)
+                ) == 0:
+                    self.hCounterProcMem = hCp
+                self.pdh.PdhCollectQueryData(self.hQuery)
         except Exception:
             self.pdh = None
 
@@ -171,6 +177,69 @@ class DxgiBackend:
         except Exception:
             pass
         return res_map
+
+    def sample_processes_by_luid(self, min_mb: float = 16.0) -> Dict[str, list]:
+        """
+        Returns map of LUID -> List[GpuProcess] using Windows PDH
+        `\\GPU Process Memory(*)\\Dedicated Usage` (covers Windows AMD & Intel GPUs).
+        """
+        if not self.pdh or not self.hQuery or not self.hCounterProcMem:
+            return {}
+
+        import psutil
+        from core.gpu_types import GpuProcess
+        from core.workload_classifier import enrich_local_process, get_local_ollama_models
+
+        per_luid_pid: Dict[str, Dict[int, float]] = {}
+        try:
+            bufSize = wintypes.DWORD(0)
+            itemCount = wintypes.DWORD(0)
+            PDH_FMT_DOUBLE = 0x00000200
+
+            self.pdh.PdhGetFormattedCounterArrayW(
+                self.hCounterProcMem, PDH_FMT_DOUBLE, ctypes.byref(bufSize), ctypes.byref(itemCount), None
+            )
+            if bufSize.value > 0:
+                buf = ctypes.create_string_buffer(bufSize.value)
+                if (
+                    self.pdh.PdhGetFormattedCounterArrayW(
+                        self.hCounterProcMem, PDH_FMT_DOUBLE, ctypes.byref(bufSize), ctypes.byref(itemCount), buf
+                    )
+                    == 0
+                ):
+                    items = ctypes.cast(buf, ctypes.POINTER(PDH_FMT_ITEM_DBL))
+                    for i in range(itemCount.value):
+                        name = items[i].szName or ""
+                        val_mb = items[i].FmtValue.doubleValue / (1024 * 1024)
+                        if val_mb < min_mb or "pid_" not in name or "luid_" not in name:
+                            continue
+                        try:
+                            pid_str = name.split("pid_")[1].split("_")[0]
+                            pid = int(pid_str)
+                            luid = name.split("luid_")[1].split("_phys")[0].upper()
+                        except Exception:
+                            continue
+                        if pid <= 4:
+                            continue
+                        bucket = per_luid_pid.setdefault(luid, {})
+                        bucket[pid] = bucket.get(pid, 0.0) + val_mb
+        except Exception:
+            return {}
+
+        ollama_models = get_local_ollama_models()
+        result: Dict[str, list] = {}
+        for luid, pid_map in per_luid_pid.items():
+            procs = []
+            for pid, mb in sorted(pid_map.items(), key=lambda x: -x[1])[:12]:
+                try:
+                    pname = psutil.Process(pid).name()
+                except Exception:
+                    continue
+                gp = GpuProcess(pid=pid, name=pname, memory_used_mb=round(mb, 1), process_type="Graphics/Compute")
+                enrich_local_process(gp, ollama_models=ollama_models)
+                procs.append(gp)
+            result[luid] = procs
+        return result
 
     def get_adapter_info(self, vendor_str: str, name_substr: str = "") -> Optional[dict]:
         vendor_id_map = {"NVIDIA": 0x10DE, "AMD": 0x1002, "INTEL": 0x8086}

@@ -43,7 +43,9 @@ Update anytime with `gpu-sentry --update` (automatically pulls the latest GitHub
 
 | Area | Highlights |
 | :--- | :--- |
-| **Multi-GPU Telemetry** | Native **NVIDIA** (NVML), **AMD** (Windows ADL + zero-dependency Linux `amdgpu` DRM/`hwmon`), **Intel** (`i915`/`xe`), and remote **Apple Silicon** (Metal `ioreg`). Tracks Load, VRAM/GTT, Core/Hotspot/Memory temps, Power vs TDP, Fan RPM/%, Clocks, and active GPU processes. |
+| **Multi-GPU Telemetry** | Native **NVIDIA** (NVML), **AMD** (Windows ADL + zero-dependency Linux `amdgpu` DRM/`hwmon`), **Intel** (`i915`/`xe`), and remote **Apple Silicon** (Metal `ioreg`). Tracks Load, VRAM/GTT, Core/Hotspot/Memory temps, Power vs TDP, Fan RPM/%, Clocks, and **Session Peaks**. |
+| **Smart GPU Workloads** | Identifies **what is keeping local & remote Tailscale GPUs busy** — extracts models & scripts (`🦙 Ollama (qwen3:32b)`, `⚡ vLLM`, `🦙 llama.cpp`, `🎨 ComfyUI`, `🔥 AI Training`, `🎬 FFmpeg`, `🎮 Games`) across Windows (NVML + PDH), Linux (NVIDIA + `amdgpu` `fdinfo`), and macOS, with 1-click **Kill Process** for local stuck jobs. |
+| **Alerts & Telemetry Logs** | Configurable desktop alerts for **High GPU Temp**, **VRAM Pressure**, and **Remote Node Offline** (with cooldowns), plus optional **CSV / JSONL** telemetry logging (`~/GPU_Sentry_Logs`). |
 | **CPU, RAM & Deep Specs** | CPU load, per-thread bars, clocks, package temp/wattage, RAM usage + SMBIOS DIMM breakdown (DDR5/DDR4 channels, MT/s, real MHz, XMP/EXPO, voltage), Motherboard/BIOS, PCIe/M.2 slots, and NVMe/SATA drives. |
 | **Flexible Views** | **⚡ Condensed View** (default — everything in one glance), **Full Cards View** (radial gauges + 60s sparklines), **Compact Mode**, **Windows Taskbar Widget** (docks next to the clock), and **24-bit TrueColor TUI** (`gpu-sentry-tui`, auto-fallback over SSH). |
 | **Responsive UI & Settings** | Wrapping toolbars & buttons (`FlowLayout` + `WrapButton`), saved window geometry, **UI Scale (`85%`–`150%`)**, **°C / °F** toggle, autostart, close-to-tray, and **GitHub Releases auto-updater** in **⚙ Settings**. |
@@ -124,7 +126,7 @@ uv run python main.py --tui    # Run TUI
 uv build                       # Build wheel & sdist
 ```
 
-Pushing a `v*` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds and publishes `gpu-sentry-windows-x64.exe`, `.zip`, `.whl`, `.tar.gz`, and `SHA256SUMS.txt` to GitHub Releases.
+Pushing a `v*` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which builds and publishes `gpu-sentry-windows-x64.exe`/`.zip`, `gpu-sentry-linux-x64`/`.tar.gz`, Python `.whl`/`.tar.gz`, and `SHA256SUMS.txt` to GitHub Releases.
 
 ---
 

@@ -12,6 +12,12 @@ class GpuProcess:
     name: str
     memory_used_mb: Optional[float] = None
     process_type: str = "Compute"  # Compute, Graphics, Context
+    cmdline: str = ""
+    workload_label: str = ""
+    category: str = ""  # AI/LLM, AI/Image, AI/ML, Media/3D, Game, Browser, System, Compute
+    gpu_util_percent: float = 0.0
+    host_name: str = ""
+    gpu_name: str = ""
 
 
 @dataclass

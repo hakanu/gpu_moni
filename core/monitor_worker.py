@@ -129,6 +129,7 @@ class MonitorWorker(QThread):
                 t0 = time.perf_counter()
                 metrics_by_id: Dict[str, GpuMetrics] = {}
                 pdh_mems = self.dxgi.sample_memory_by_luid()
+                pdh_procs = self.dxgi.sample_processes_by_luid()
 
                 total_power = 0.0
                 max_temp = 0.0
@@ -141,11 +142,15 @@ class MonitorWorker(QThread):
                     m = GpuMetrics()
                     if dev.vendor == "NVIDIA" and self.nvml.available and dev.device_id.startswith("nvidia_"):
                         m = self.nvml.sample_metrics(dev.index)
+                        if not m.processes and dev.luid in pdh_procs:
+                            m.processes = pdh_procs[dev.luid]
                     elif dev.vendor == "AMD" and self.adl.available and dev.device_id.startswith("amd_"):
                         m = self.adl.sample_metrics(dev.index)
-                        # Set VRAM from PDH and DXGI
+                        # Set VRAM and per-process workloads from PDH and DXGI
                         if dev.luid in pdh_mems:
                             m.vram_used_mb = pdh_mems[dev.luid]
+                        if not m.processes and dev.luid in pdh_procs:
+                            m.processes = pdh_procs[dev.luid]
                         m.vram_total_mb = dev.vram_total_mb
                         if m.vram_total_mb > 0:
                             m.vram_free_mb = max(0.0, m.vram_total_mb - m.vram_used_mb)
@@ -155,6 +160,8 @@ class MonitorWorker(QThread):
                         # Fallback for generic/Intel DXGI
                         if dev.luid in pdh_mems:
                             m.vram_used_mb = pdh_mems[dev.luid]
+                        if not m.processes and dev.luid in pdh_procs:
+                            m.processes = pdh_procs[dev.luid]
                         m.vram_total_mb = dev.vram_total_mb
 
                     metrics_by_id[dev.device_id] = m

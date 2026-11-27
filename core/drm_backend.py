@@ -649,14 +649,20 @@ class LinuxDrmBackend:
             if not existing or ((mem_mb or 0.0) > (existing[1] or 0.0)):
                 per_card_procs[matched_dev_id][pid] = (pname, mem_mb or 0.0, p_type)
 
+        from core.workload_classifier import enrich_local_process, get_local_ollama_models
+        ollama_models = get_local_ollama_models()
+
         for dev_id, pid_map in per_card_procs.items():
             sorted_procs = sorted(pid_map.items(), key=lambda x: x[1][1], reverse=True)
             result[dev_id] = [
-                GpuProcess(
-                    pid=pid,
-                    name=info[0],
-                    memory_used_mb=info[1] if info[1] > 0 else None,
-                    process_type=info[2],
+                enrich_local_process(
+                    GpuProcess(
+                        pid=pid,
+                        name=info[0],
+                        memory_used_mb=info[1] if info[1] > 0 else None,
+                        process_type=info[2],
+                    ),
+                    ollama_models=ollama_models,
                 )
                 for pid, info in sorted_procs
             ]
