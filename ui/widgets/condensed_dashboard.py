@@ -18,6 +18,7 @@ from core.gpu_types import GpuDevice, GpuMetrics, HostMetrics
 from core.hardware_info import SystemHardwareSpecs
 from core.network_telemetry import NetworkTelemetryManager, RemoteNodeState
 from ui.theme import Theme
+from ui.widgets.flow_layout import FlowLayout
 from ui.widgets.wrap_button import WrapButton
 
 
@@ -89,10 +90,10 @@ class CondensedDashboardWidget(QWidget):
 
         # Row 1: CPU
         cpu_row = QHBoxLayout()
-        cpu_row.setSpacing(8)
+        cpu_row.setSpacing(6)
 
         lbl_cpu_tag = QLabel("CPU")
-        lbl_cpu_tag.setFixedWidth(36)
+        lbl_cpu_tag.setFixedWidth(32)
         lbl_cpu_tag.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_cpu_tag.setStyleSheet(f"""
             background-color: {Theme.CYBER_CYAN}22;
@@ -101,47 +102,48 @@ class CondensedDashboardWidget(QWidget):
             border-radius: 4px;
             font-size: 9px;
             font-weight: 800;
-            padding: 1px 4px;
+            padding: 1px 3px;
         """)
         cpu_row.addWidget(lbl_cpu_tag)
 
         cpu_name = self.hw_specs.cpu.name or "Processor"
-        self.lbl_cpu_name = QLabel(cpu_name[:38])
-        self.lbl_cpu_name.setMinimumWidth(190)
+        self.lbl_cpu_name = QLabel(cpu_name[:28])
+        self.lbl_cpu_name.setToolTip(cpu_name)
+        self.lbl_cpu_name.setMinimumWidth(100)
         self.lbl_cpu_name.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 700;")
         cpu_row.addWidget(self.lbl_cpu_name, stretch=2)
 
-        self.cpu_bar = _make_bar(Theme.CYBER_CYAN, 70, 6)
+        self.cpu_bar = _make_bar(Theme.CYBER_CYAN, 42, 6)
         cpu_row.addWidget(self.cpu_bar)
 
-        self.lbl_cpu_load = QLabel("  0%")
-        self.lbl_cpu_load.setFixedWidth(38)
+        self.lbl_cpu_load = QLabel(" 0%")
+        self.lbl_cpu_load.setFixedWidth(32)
         self.lbl_cpu_load.setStyleSheet("color: #f0f6fc; font-size: 11px; font-weight: 800;")
         cpu_row.addWidget(self.lbl_cpu_load)
 
-        self.lbl_cpu_temp = QLabel("🌡 --°C")
-        self.lbl_cpu_temp.setFixedWidth(105)
+        self.lbl_cpu_pwr = QLabel("⚡ --W")
+        self.lbl_cpu_pwr.setFixedWidth(56)
+        self.lbl_cpu_pwr.setStyleSheet(f"color: {Theme.TEMP_WARM}; font-size: 11px; font-weight: 800;")
+        cpu_row.addWidget(self.lbl_cpu_pwr)
+
+        self.lbl_cpu_temp = QLabel("🌡--°C")
+        self.lbl_cpu_temp.setFixedWidth(74)
         self.lbl_cpu_temp.setStyleSheet(f"color: {Theme.TEMP_COOL}; font-size: 11px; font-weight: 700;")
         cpu_row.addWidget(self.lbl_cpu_temp)
 
-        self.lbl_cpu_pwr = QLabel("⚡ -- W")
-        self.lbl_cpu_pwr.setFixedWidth(68)
-        self.lbl_cpu_pwr.setStyleSheet(f"color: {Theme.TEMP_WARM}; font-size: 11px; font-weight: 700;")
-        cpu_row.addWidget(self.lbl_cpu_pwr)
-
         self.lbl_cpu_clk = QLabel("-- GHz")
-        self.lbl_cpu_clk.setMinimumWidth(140)
-        self.lbl_cpu_clk.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 11px; font-weight: 600;")
-        cpu_row.addWidget(self.lbl_cpu_clk, stretch=2)
+        self.lbl_cpu_clk.setMinimumWidth(65)
+        self.lbl_cpu_clk.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px; font-weight: 600;")
+        cpu_row.addWidget(self.lbl_cpu_clk, stretch=1)
 
         host_layout.addLayout(cpu_row)
 
         # Row 2: System RAM & Platform
         ram_row = QHBoxLayout()
-        ram_row.setSpacing(8)
+        ram_row.setSpacing(6)
 
         lbl_ram_tag = QLabel("RAM")
-        lbl_ram_tag.setFixedWidth(36)
+        lbl_ram_tag.setFixedWidth(32)
         lbl_ram_tag.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_ram_tag.setStyleSheet(f"""
             background-color: {Theme.CYBER_PURPLE}22;
@@ -150,46 +152,46 @@ class CondensedDashboardWidget(QWidget):
             border-radius: 4px;
             font-size: 9px;
             font-weight: 800;
-            padding: 1px 4px;
+            padding: 1px 3px;
         """)
         ram_row.addWidget(lbl_ram_tag)
 
         r = self.hw_specs.ram
-        ch_short = "Dual-Ch" if "Dual" in r.channel_mode else ("Quad-Ch" if "Quad" in r.channel_mode else (r.channel_mode or "System RAM"))
+        ch_short = "Dual" if "Dual" in r.channel_mode else ("Quad" if "Quad" in r.channel_mode else (r.channel_mode or "RAM"))
         ram_desc = f"{r.mem_type} {ch_short}"
         if r.configured_speed_mts:
-            ram_desc += f" @ {r.configured_speed_mts} MT/s"
-        if r.slots_used and r.slots_total:
-            ram_desc += f" ({r.slots_used}/{r.slots_total} DIMMs)"
-        self.lbl_ram_spec = QLabel(ram_desc[:38])
-        self.lbl_ram_spec.setMinimumWidth(190)
+            ram_desc += f" {r.configured_speed_mts}"
+        self.lbl_ram_spec = QLabel(ram_desc[:24])
+        self.lbl_ram_spec.setToolTip(f"{r.mem_type} {r.channel_mode} @ {r.configured_speed_mts} MT/s ({r.slots_used}/{r.slots_total} DIMMs)")
+        self.lbl_ram_spec.setMinimumWidth(100)
         self.lbl_ram_spec.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 700;")
         ram_row.addWidget(self.lbl_ram_spec, stretch=2)
 
-        self.ram_bar = _make_bar(Theme.CYBER_PURPLE, 70, 6)
+        self.ram_bar = _make_bar(Theme.CYBER_PURPLE, 42, 6)
         ram_row.addWidget(self.ram_bar)
 
-        self.lbl_ram_pct = QLabel("  0%")
-        self.lbl_ram_pct.setFixedWidth(38)
+        self.lbl_ram_pct = QLabel(" 0%")
+        self.lbl_ram_pct.setFixedWidth(32)
         self.lbl_ram_pct.setStyleSheet("color: #f0f6fc; font-size: 11px; font-weight: 800;")
         ram_row.addWidget(self.lbl_ram_pct)
 
-        self.lbl_ram_used = QLabel("0.0 / 0.0 GB")
-        self.lbl_ram_used.setFixedWidth(105)
+        self.lbl_ram_used = QLabel("0/0G")
+        self.lbl_ram_used.setFixedWidth(74)
         self.lbl_ram_used.setStyleSheet("color: #f0f6fc; font-size: 11px; font-weight: 700;")
         ram_row.addWidget(self.lbl_ram_used)
 
-        self.lbl_ram_free = QLabel("Free: -- GB")
-        self.lbl_ram_free.setFixedWidth(85)
-        self.lbl_ram_free.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 11px;")
+        self.lbl_ram_free = QLabel("Free --G")
+        self.lbl_ram_free.setFixedWidth(62)
+        self.lbl_ram_free.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px;")
         ram_row.addWidget(self.lbl_ram_free)
 
         mb = self.hw_specs.motherboard
-        mb_txt = f"{mb.product} (BIOS {mb.bios_version})" if mb.product else ""
-        self.lbl_mobo = QLabel(mb_txt[:42])
-        self.lbl_mobo.setMinimumWidth(120)
+        mb_txt = f"{mb.product}" if mb.product else ""
+        self.lbl_mobo = QLabel(mb_txt[:24])
+        self.lbl_mobo.setToolTip(f"{mb.product} (BIOS {mb.bios_version})" if mb.product else "")
+        self.lbl_mobo.setMinimumWidth(65)
         self.lbl_mobo.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 10px; font-weight: 600;")
-        ram_row.addWidget(self.lbl_mobo, stretch=2)
+        ram_row.addWidget(self.lbl_mobo, stretch=1)
 
         host_layout.addLayout(ram_row)
         root.addWidget(self.host_frame)
@@ -210,13 +212,11 @@ class CondensedDashboardWidget(QWidget):
         local_outer.setContentsMargins(10, 6, 10, 7)
         local_outer.setSpacing(4)
 
-        local_hdr = QHBoxLayout()
-        local_hdr.setSpacing(8)
+        local_hdr = FlowLayout(margin=0, h_spacing=8, v_spacing=4)
         self.lbl_local_title = QLabel("⚡ LOCAL GPUs (0)")
         self.lbl_local_title.setStyleSheet(f"color: {Theme.NVIDIA_GREEN}; font-size: 11px; font-weight: 800; letter-spacing: 0.4px;")
         local_hdr.addWidget(self.lbl_local_title)
-        local_hdr.addStretch()
-        self.lbl_local_summary = QLabel("VRAM: 0.0/0.0 GB • 🔥 0.0 W")
+        self.lbl_local_summary = QLabel("VRAM: 0/0G • 🔥 0W")
         self.lbl_local_summary.setStyleSheet(f"color: {Theme.TEMP_WARM}; font-size: 10px; font-weight: 700;")
         local_hdr.addWidget(self.lbl_local_summary)
 
@@ -512,12 +512,12 @@ class CondensedDashboardWidget(QWidget):
                 }}
             """)
             rl = QHBoxLayout(row_w)
-            rl.setContentsMargins(8, 4, 8, 4)
-            rl.setSpacing(8)
+            rl.setContentsMargins(6, 3, 6, 3)
+            rl.setSpacing(6)
 
             v_col = Theme.get_vendor_color(dev.vendor)
-            badge = QLabel(f"GPU{dev.index}")
-            badge.setFixedWidth(40)
+            badge = QLabel(f"G{dev.index}")
+            badge.setFixedWidth(26)
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             badge.setStyleSheet(f"""
                 background-color: {v_col}22;
@@ -529,49 +529,55 @@ class CondensedDashboardWidget(QWidget):
             """)
             rl.addWidget(badge)
 
-            arch_s = f" ({dev.architecture})" if dev.architecture else ""
-            lbl_name = QLabel(f"{dev.name[:28]}{arch_s[:14]}")
-            lbl_name.setMinimumWidth(185)
+            short_name = (
+                dev.name.replace("NVIDIA GeForce ", "")
+                .replace("AMD Radeon(TM) ", "")
+                .replace("AMD Radeon ", "")
+                .replace("Intel(R) ", "")
+                .strip()
+            )
+            lbl_name = QLabel(short_name[:20])
+            lbl_name.setMinimumWidth(95)
             lbl_name.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 700; border: none;")
             lbl_name.setToolTip(f"{dev.name} • {dev.architecture} • PCIe Gen{dev.pcie_gen}x{dev.pcie_width} • Driver {dev.driver_version}")
             rl.addWidget(lbl_name, stretch=2)
 
-            load_bar = _make_bar(v_col, 55, 6)
+            load_bar = _make_bar(v_col, 34, 6)
             rl.addWidget(load_bar)
 
-            lbl_load = QLabel("  0%")
-            lbl_load.setFixedWidth(36)
+            lbl_load = QLabel(" 0%")
+            lbl_load.setFixedWidth(30)
             lbl_load.setStyleSheet("color: #f0f6fc; font-size: 11px; font-weight: 700; border: none;")
             rl.addWidget(lbl_load)
 
-            vram_bar = _make_bar(Theme.CYBER_CYAN, 55, 6)
-            rl.addWidget(vram_bar)
-
-            lbl_vram = QLabel("VRAM --")
-            lbl_vram.setFixedWidth(155)
-            lbl_vram.setStyleSheet("color: #f0f6fc; font-size: 11px; font-weight: 600; border: none;")
-            rl.addWidget(lbl_vram)
-
-            lbl_therm = QLabel("🌡 --°C")
-            lbl_therm.setMinimumWidth(145)
-            lbl_therm.setStyleSheet(f"color: {Theme.TEMP_COOL}; font-size: 11px; font-weight: 700; border: none;")
-            rl.addWidget(lbl_therm, stretch=1)
-
-            lbl_pwr = QLabel("🔥 -- W")
-            lbl_pwr.setMinimumWidth(92)
+            lbl_pwr = QLabel("🔥--W")
+            lbl_pwr.setMinimumWidth(68)
             lbl_pwr.setStyleSheet(f"""
                 background-color: {Theme.TEMP_WARM}18;
                 color: {Theme.TEMP_WARM};
                 border: 1px solid {Theme.TEMP_WARM}44;
                 border-radius: 4px;
-                padding: 1px 6px;
-                font-size: 11px;
+                padding: 1px 5px;
+                font-size: 10px;
                 font-weight: 800;
             """)
             rl.addWidget(lbl_pwr)
 
-            lbl_clk = QLabel("-- MHz")
-            lbl_clk.setMinimumWidth(95)
+            lbl_therm = QLabel("🌡--°C")
+            lbl_therm.setMinimumWidth(78)
+            lbl_therm.setStyleSheet(f"color: {Theme.TEMP_COOL}; font-size: 11px; font-weight: 700; border: none;")
+            rl.addWidget(lbl_therm, stretch=1)
+
+            vram_bar = _make_bar(Theme.CYBER_CYAN, 34, 6)
+            rl.addWidget(vram_bar)
+
+            lbl_vram = QLabel("--/--G")
+            lbl_vram.setMinimumWidth(78)
+            lbl_vram.setStyleSheet("color: #f0f6fc; font-size: 10px; font-weight: 600; border: none;")
+            rl.addWidget(lbl_vram, stretch=1)
+
+            lbl_clk = QLabel("--MHz")
+            lbl_clk.setMinimumWidth(58)
             lbl_clk.setStyleSheet(f"color: {Theme.TEXT_SECONDARY}; font-size: 10px; font-weight: 600; border: none;")
             rl.addWidget(lbl_clk)
 
@@ -650,34 +656,33 @@ class CondensedDashboardWidget(QWidget):
                 t_gb = m.vram_total_mb / 1024.0
                 v_pct = int(min(100, max(0, (m.vram_used_mb / m.vram_total_mb) * 100.0)))
                 w["vram_bar"].setValue(v_pct)
-                gtt_s = f" +{m.shared_used_mb/1024.0:.1f}G" if m.shared_used_mb >= 100 else ""
-                w["lbl_vram"].setText(f"{u_gb:4.1f}/{t_gb:4.1f}GB ({v_pct:2d}%){gtt_s}")
+                w["lbl_vram"].setText(f"{u_gb:.1f}/{t_gb:.0f}G ({v_pct}%)")
+                gtt_tip = f" (+{m.shared_used_mb/1024.0:.1f} GB shared GTT)" if m.shared_used_mb >= 100 else ""
+                w["lbl_vram"].setToolTip(f"VRAM: {u_gb:.2f} / {t_gb:.1f} GB ({v_pct}%){gtt_tip}")
             else:
                 w["vram_bar"].setValue(0)
-                w["lbl_vram"].setText("Shared Host RAM")
+                w["lbl_vram"].setText("Shared")
 
             eff_t = max(m.temp_core_c, (m.temp_hotspot_c - 22.0) if m.temp_hotspot_c else 0.0)
             t_col = Theme.get_temp_color(eff_t)
-            t_stat = Theme.get_temp_status(eff_t)[:4]
-            t_parts = [f"🌡{m.temp_core_c:.0f}°C [{t_stat}]"]
+            t_parts = [f"🌡{m.temp_core_c:.0f}°C"]
             if m.temp_hotspot_c and m.temp_hotspot_c > 0:
                 t_parts.append(f"J:{m.temp_hotspot_c:.0f}°")
-            if m.temp_memory_c and m.temp_memory_c > 0:
-                t_parts.append(f"M:{m.temp_memory_c:.0f}°")
             if m.fan_speed_rpm and m.fan_speed_rpm > 0:
                 t_parts.append(f"🌀{m.fan_speed_rpm}")
             elif m.fan_speed_percent is not None and m.fan_speed_percent > 0:
                 t_parts.append(f"🌀{m.fan_speed_percent:.0f}%")
             w["lbl_therm"].setText(" ".join(t_parts))
-            w["lbl_therm"].setStyleSheet(f"color: {t_col}; font-size: 11px; font-weight: 700; border: none;")
+            w["lbl_therm"].setStyleSheet(f"color: {t_col}; font-size: 10px; font-weight: 700; border: none;")
 
             if m.power_draw_w > 0:
-                p_s = f"🔥 {m.power_draw_w:.0f}/{m.power_limit_w:.0f}W" if m.power_limit_w else f"🔥 {m.power_draw_w:.1f}W"
+                p_s = f"🔥{m.power_draw_w:.0f}/{m.power_limit_w:.0f}W" if m.power_limit_w else f"🔥{m.power_draw_w:.0f}W"
             else:
-                p_s = "🔥 -- W"
+                p_s = "🔥--W"
             w["lbl_pwr"].setText(p_s)
-            c_s = f"{m.clock_graphics_mhz or '--'}/{m.clock_memory_mhz or '--'} MHz"
+            c_s = f"{m.clock_graphics_mhz or '--'}MHz"
             w["lbl_clk"].setText(c_s)
+            w["lbl_clk"].setToolTip(f"Core: {m.clock_graphics_mhz or '--'} MHz • Mem: {m.clock_memory_mhz or '--'} MHz")
 
         self.lbl_local_summary.setText(f"VRAM: {tot_u:.1f}/{tot_t:.1f} GB • 🔥 {tot_w:.1f} W")
 
@@ -867,73 +872,79 @@ class CondensedDashboardWidget(QWidget):
                     }}
                 """)
                 rl = QHBoxLayout(row_w)
-                rl.setContentsMargins(8, 3, 8, 3)
-                rl.setSpacing(8)
+                rl.setContentsMargins(6, 3, 6, 3)
+                rl.setSpacing(6)
 
-                lbl_host = QLabel(f"● {st.hostname[:12]}")
-                lbl_host.setFixedWidth(105)
-                lbl_host.setStyleSheet(f"color: {Theme.NVIDIA_GREEN}; font-size: 11px; font-weight: 800; border: none;")
+                lbl_host = QLabel(f"● {st.hostname[:10]}")
+                lbl_host.setMinimumWidth(72)
+                lbl_host.setStyleSheet(f"color: {Theme.NVIDIA_GREEN}; font-size: 10px; font-weight: 800; border: none;")
                 lbl_host.setToolTip(f"{st.hostname} ({st.tailscale_ip or st.address}) • {st.latency_ms:.0f} ms")
                 rl.addWidget(lbl_host)
 
                 v_col = Theme.get_vendor_color(dev.vendor)
-                lbl_gpu = QLabel(dev.name[:28])
-                lbl_gpu.setMinimumWidth(175)
-                lbl_gpu.setStyleSheet(f"color: {v_col}; font-size: 11px; font-weight: 700; border: none;")
+                clean_gpu = dev.name.split("]")[-1].strip() if "]" in dev.name else dev.name
+                clean_gpu = (
+                    clean_gpu.replace("NVIDIA GeForce ", "")
+                    .replace("AMD Radeon(TM) ", "")
+                    .replace("AMD Radeon ", "")
+                    .strip()
+                )
+                lbl_gpu = QLabel(clean_gpu[:20])
+                lbl_gpu.setToolTip(dev.name)
+                lbl_gpu.setMinimumWidth(95)
+                lbl_gpu.setStyleSheet(f"color: {v_col}; font-size: 10px; font-weight: 700; border: none;")
                 rl.addWidget(lbl_gpu, stretch=2)
 
-                load_bar = _make_bar(v_col, 50, 6)
+                load_bar = _make_bar(v_col, 32, 6)
                 load_bar.setValue(int(min(100, max(0, m.gpu_util_percent))))
                 rl.addWidget(load_bar)
 
-                lbl_load = QLabel(f"{m.gpu_util_percent:3.0f}%")
-                lbl_load.setFixedWidth(36)
-                lbl_load.setStyleSheet("color: #f0f6fc; font-size: 11px; font-weight: 700; border: none;")
+                lbl_load = QLabel(f"{m.gpu_util_percent:2.0f}%")
+                lbl_load.setFixedWidth(28)
+                lbl_load.setStyleSheet("color: #f0f6fc; font-size: 10px; font-weight: 700; border: none;")
                 rl.addWidget(lbl_load)
 
-                vram_bar = _make_bar(Theme.CYBER_CYAN, 55, 6)
+                if m.power_draw_w > 0:
+                    p_s = f"🔥{m.power_draw_w:.0f}/{m.power_limit_w:.0f}W" if m.power_limit_w else f"🔥{m.power_draw_w:.0f}W"
+                else:
+                    p_s = "🔥--W"
+                lbl_pwr = QLabel(p_s)
+                lbl_pwr.setMinimumWidth(64)
+                lbl_pwr.setStyleSheet(f"""
+                    background-color: {Theme.TEMP_WARM}18;
+                    color: {Theme.TEMP_WARM};
+                    border: 1px solid {Theme.TEMP_WARM}44;
+                    border-radius: 4px;
+                    padding: 1px 4px;
+                    font-size: 10px;
+                    font-weight: 800;
+                """)
+                rl.addWidget(lbl_pwr)
+
+                eff_t = max(m.temp_core_c, (m.temp_hotspot_c - 22.0) if m.temp_hotspot_c else 0.0)
+                t_col = Theme.get_temp_color(eff_t)
+                t_parts = [f"🌡{m.temp_core_c:.0f}°C"]
+                if m.temp_hotspot_c and m.temp_hotspot_c > 0:
+                    t_parts.append(f"J:{m.temp_hotspot_c:.0f}°")
+                lbl_therm = QLabel(" ".join(t_parts))
+                lbl_therm.setMinimumWidth(72)
+                lbl_therm.setStyleSheet(f"color: {t_col}; font-size: 10px; font-weight: 700; border: none;")
+                rl.addWidget(lbl_therm, stretch=1)
+
                 if m.vram_total_mb > 0:
                     u_gb = m.vram_used_mb / 1024.0
                     t_gb = m.vram_total_mb / 1024.0
                     v_pct = int(min(100, max(0, (m.vram_used_mb / m.vram_total_mb) * 100.0)))
-                    vram_bar.setValue(v_pct)
-                    v_txt = f"{u_gb:4.1f}/{t_gb:4.1f}GB ({v_pct:2d}%)"
+                    v_txt = f"{u_gb:.1f}/{t_gb:.0f}G ({v_pct}%)"
                 else:
-                    vram_bar.setValue(0)
-                    v_txt = "Shared iGPU RAM"
-                rl.addWidget(vram_bar)
-
+                    v_txt = "Shared"
                 lbl_vram = QLabel(v_txt)
-                lbl_vram.setFixedWidth(135)
-                lbl_vram.setStyleSheet("color: #f0f6fc; font-size: 11px; font-weight: 600; border: none;")
-                rl.addWidget(lbl_vram)
-
-                eff_t = max(m.temp_core_c, (m.temp_hotspot_c - 22.0) if m.temp_hotspot_c else 0.0)
-                t_col = Theme.get_temp_color(eff_t)
-                t_stat = Theme.get_temp_status(eff_t)[:4]
-                t_parts = [f"🌡{m.temp_core_c:.0f}°C [{t_stat}]"]
-                if m.temp_hotspot_c and m.temp_hotspot_c > 0:
-                    t_parts.append(f"J:{m.temp_hotspot_c:.0f}°")
-                if m.temp_memory_c and m.temp_memory_c > 0:
-                    t_parts.append(f"M:{m.temp_memory_c:.0f}°")
-                if m.fan_speed_rpm and m.fan_speed_rpm > 0:
-                    t_parts.append(f"🌀{m.fan_speed_rpm}")
-                lbl_therm = QLabel(" ".join(t_parts))
-                lbl_therm.setMinimumWidth(165)
-                lbl_therm.setStyleSheet(f"color: {t_col}; font-size: 11px; font-weight: 700; border: none;")
-                rl.addWidget(lbl_therm, stretch=2)
-
-                if m.power_draw_w > 0:
-                    p_s = f"🔥{m.power_draw_w:.0f}/{m.power_limit_w:.0f}W" if m.power_limit_w else f"🔥{m.power_draw_w:.1f}W"
-                else:
-                    p_s = "🔥--W"
-                lbl_pwr = QLabel(p_s)
-                lbl_pwr.setFixedWidth(78)
-                lbl_pwr.setStyleSheet(f"color: {Theme.TEMP_WARM}; font-size: 11px; font-weight: 700; border: none;")
-                rl.addWidget(lbl_pwr)
+                lbl_vram.setMinimumWidth(76)
+                lbl_vram.setStyleSheet(f"color: {Theme.CYBER_CYAN}; font-size: 10px; font-weight: 600; border: none;")
+                rl.addWidget(lbl_vram, stretch=1)
 
                 btn_off = QPushButton("OFF")
-                btn_off.setFixedWidth(34)
+                btn_off.setFixedWidth(28)
                 btn_off.setToolTip(f"Disable polling {st.hostname}")
                 btn_off.setStyleSheet(f"""
                     QPushButton {{
