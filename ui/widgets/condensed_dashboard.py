@@ -10,7 +10,7 @@ Provides a high-density, `bpytop`-inspired GUI view of Everything in one compact
 from typing import Dict, List, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
-    QProgressBar, QPushButton, QApplication
+    QProgressBar, QPushButton, QApplication, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -109,7 +109,8 @@ class CondensedDashboardWidget(QWidget):
         cpu_name = self.hw_specs.cpu.name or "Processor"
         self.lbl_cpu_name = QLabel(cpu_name[:28])
         self.lbl_cpu_name.setToolTip(cpu_name)
-        self.lbl_cpu_name.setMinimumWidth(100)
+        self.lbl_cpu_name.setMinimumWidth(90)
+        self.lbl_cpu_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.lbl_cpu_name.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 700;")
         cpu_row.addWidget(self.lbl_cpu_name, stretch=2)
 
@@ -163,7 +164,8 @@ class CondensedDashboardWidget(QWidget):
             ram_desc += f" {r.configured_speed_mts}"
         self.lbl_ram_spec = QLabel(ram_desc[:24])
         self.lbl_ram_spec.setToolTip(f"{r.mem_type} {r.channel_mode} @ {r.configured_speed_mts} MT/s ({r.slots_used}/{r.slots_total} DIMMs)")
-        self.lbl_ram_spec.setMinimumWidth(100)
+        self.lbl_ram_spec.setMinimumWidth(90)
+        self.lbl_ram_spec.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.lbl_ram_spec.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 700;")
         ram_row.addWidget(self.lbl_ram_spec, stretch=2)
 
@@ -189,7 +191,8 @@ class CondensedDashboardWidget(QWidget):
         mb_txt = f"{mb.product}" if mb.product else ""
         self.lbl_mobo = QLabel(mb_txt[:24])
         self.lbl_mobo.setToolTip(f"{mb.product} (BIOS {mb.bios_version})" if mb.product else "")
-        self.lbl_mobo.setMinimumWidth(65)
+        self.lbl_mobo.setMinimumWidth(50)
+        self.lbl_mobo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.lbl_mobo.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 10px; font-weight: 600;")
         ram_row.addWidget(self.lbl_mobo, stretch=1)
 
@@ -350,6 +353,7 @@ class CondensedDashboardWidget(QWidget):
         proc_hdr.addWidget(self.lbl_procs_title)
 
         self.lbl_procs_inline = QLabel("No active compute/graphics GPU workloads.")
+        self.lbl_procs_inline.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.lbl_procs_inline.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 10px; font-weight: 600;")
         proc_hdr.addWidget(self.lbl_procs_inline, stretch=1)
         bot_outer.addLayout(proc_hdr)
@@ -369,6 +373,8 @@ class CondensedDashboardWidget(QWidget):
         hw_row.addWidget(lbl_hw_tag)
 
         self.lbl_hw_summary = QLabel(self._build_hw_one_liner())
+        self.lbl_hw_summary.setWordWrap(True)
+        self.lbl_hw_summary.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.lbl_hw_summary.setStyleSheet(f"color: {Theme.TEXT_MUTED}; font-size: 10px; font-weight: 600;")
         hw_row.addWidget(self.lbl_hw_summary, stretch=1)
 
@@ -537,7 +543,8 @@ class CondensedDashboardWidget(QWidget):
                 .strip()
             )
             lbl_name = QLabel(short_name[:20])
-            lbl_name.setMinimumWidth(95)
+            lbl_name.setMinimumWidth(85)
+            lbl_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
             lbl_name.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 700; border: none;")
             lbl_name.setToolTip(f"{dev.name} • {dev.architecture} • PCIe Gen{dev.pcie_gen}x{dev.pcie_width} • Driver {dev.driver_version}")
             rl.addWidget(lbl_name, stretch=2)
@@ -891,7 +898,8 @@ class CondensedDashboardWidget(QWidget):
                 )
                 lbl_gpu = QLabel(clean_gpu[:20])
                 lbl_gpu.setToolTip(dev.name)
-                lbl_gpu.setMinimumWidth(95)
+                lbl_gpu.setMinimumWidth(80)
+                lbl_gpu.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
                 lbl_gpu.setStyleSheet(f"color: {v_col}; font-size: 10px; font-weight: 700; border: none;")
                 rl.addWidget(lbl_gpu, stretch=2)
 
